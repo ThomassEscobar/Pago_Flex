@@ -1,4 +1,4 @@
-package cl.pagoflex.app.funcionalidades.inicio
+package cl.pagoflex.app.nucleo.funcionalidades.inicio
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

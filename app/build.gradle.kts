@@ -27,7 +27,8 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8080/\"")
+            // ¡OJO AQUÍ! Cambiamos el 8080 por el 8081
+            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8081/\"")
         }
         release {
             isMinifyEnabled = true

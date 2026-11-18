@@ -1,0 +1,58 @@
+package cl.pagoflex.autenticacion.config;
+
+import java.time.Instant;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import cl.pagoflex.autenticacion.dominio.model.RolEntidad;
+import cl.pagoflex.autenticacion.dominio.model.UsuarioEntidad;
+import cl.pagoflex.autenticacion.infraestructura.persistencia.repository.RepositorioRolJpa;
+import cl.pagoflex.autenticacion.infraestructura.persistencia.repository.RepositorioUsuarioJpa;
+
+@Configuration
+public class SembradorDatos {
+
+    private static final String CLAVE_SEMILLA = "Pagoflex2026!";
+
+    @Bean
+    CommandLineRunner sembrarUsuarios(RepositorioUsuarioJpa usuarios,
+                                      RepositorioRolJpa roles,
+                                      PasswordEncoder encoder) {
+        return args -> {
+            RolEntidad rolUser = roles.findByNombre("USER")
+                    .orElseGet(() -> roles.save(new RolEntidad(null, "USER")));
+            roles.findByNombre("SERVICE")
+                    .orElseGet(() -> roles.save(new RolEntidad(null, "SERVICE")));
+
+            crearSiNoExiste(usuarios, encoder, rolUser, "ana@pagoflex.cl", "Ana Pérez");
+            crearSiNoExiste(usuarios, encoder, rolUser, "bruno@pagoflex.cl", "Bruno Soto");
+            crearSiNoExiste(usuarios, encoder, rolUser, "carola@pagoflex.cl", "Carola Muñoz");
+            
+            System.out.println("✅ Usuarios semilla verificados/creados.");
+        };
+    }
+
+    private void crearSiNoExiste(RepositorioUsuarioJpa usuarios,
+                                 PasswordEncoder encoder,
+                                 RolEntidad rol,
+                                 String correo,
+                                 String nombre) {
+        if (usuarios.findByCorreo(correo).isPresent()) return;
+        
+        UsuarioEntidad u = new UsuarioEntidad();
+        u.setId(UUID.randomUUID());
+        u.setCorreo(correo);
+        u.setNombreCompleto(nombre);
+        u.setHashContrasena(encoder.encode(CLAVE_SEMILLA));
+        u.setEstado("ACTIVO");
+        u.setCreadoEn(Instant.now());
+        u.setActualizadoEn(Instant.now());
+        u.setRoles(Set.of(rol));
+        usuarios.save(u);
+    }
+}

@@ -4,11 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import cl.pagoflex.app.funcionalidades.autenticacion.PantallaLogin
-import cl.pagoflex.app.funcionalidades.inicio.PantallaInicio
+import cl.pagoflex.app.nucleo.funcionalidades.inicio.PantallaInicio
 import cl.pagoflex.app.navegacion.RutaInicio
 import cl.pagoflex.app.navegacion.RutaLogin
-
+import cl.pagoflex.app.nucleo.funcionalidades.autenticacion.PantallaLogin
 @Composable
 fun NavegacionRaiz() {
     val navController = rememberNavController()
