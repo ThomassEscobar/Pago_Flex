@@ -45,7 +45,7 @@ public class SembradorDatos {
         if (usuarios.findByCorreo(correo).isPresent()) return;
         
         UsuarioEntidad u = new UsuarioEntidad();
-        u.setId(UUID.randomUUID());
+        u.setId(UUID.fromString("11111111-1111-1111-1111-111111111111"));
         u.setCorreo(correo);
         u.setNombreCompleto(nombre);
         u.setHashContrasena(encoder.encode(CLAVE_SEMILLA));
