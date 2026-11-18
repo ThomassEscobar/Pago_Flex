@@ -1,6 +1,5 @@
 package cl.pagoflex.autenticacion.config;
 
-
 import java.util.List;
 
 import org.springframework.context.annotation.Bean;
@@ -30,7 +29,6 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            // Desactivamos el login por formulario y basic auth para que no interfieran
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
             .authorizeHttpRequests(auth -> auth

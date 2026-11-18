@@ -2,6 +2,7 @@ package cl.pagoflex.app.inyeccion
 
 import cl.pagoflex.app.BuildConfig
 import cl.pagoflex.app.nucleo.red.ApiAutenticacion
+import cl.pagoflex.app.nucleo.red.ApiCompromisos
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
@@ -52,5 +53,10 @@ object RedModulo {
     @Singleton
     fun provideApiAutenticacion(retrofit: Retrofit): ApiAutenticacion {
         return retrofit.create(ApiAutenticacion::class.java)
+    }
+    @Provides
+    @Singleton
+    fun provideApiCompromisos(retrofit: Retrofit): ApiCompromisos {
+        return retrofit.create(ApiCompromisos::class.java)
     }
 }
