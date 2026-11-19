@@ -13,11 +13,11 @@ import kotlinx.serialization.Serializable
 @Serializable data class RutaRestablecer(val correo: String)
 
 // Principal
-@Serializable object RutaInicio
+@Serializable data class RutaInicio(val usuarioId: Int = 1)
 @Serializable object RutaListaCompromisos
 @Serializable data class RutaDetalleCompromiso(val id: String)
 @Serializable data class RutaPago(val compromisoId: String)
 @Serializable data class RutaComprobante(val pagoId: String)
 @Serializable object RutaHistorial
 @Serializable object RutaNotificaciones
-@Serializable object RutaPerfil
+@Serializable object RutaPerfilrializable object RutaPerfil

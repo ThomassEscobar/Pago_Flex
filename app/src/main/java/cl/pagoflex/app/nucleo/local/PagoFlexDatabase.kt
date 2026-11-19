@@ -34,7 +34,7 @@ abstract class PagoFlexDatabase : RoomDatabase() {
                     UsuarioEntity(nombre = "Camila Soto", correo = "usuario@pagoflex.cl", clave = "123456", rol = "USUARIO")
                 )
                 database.usuarioDao().registrar(
-                    UsuarioEntity(nombre = "Carlos Admin", correo = "admin@pagoflex.cl", clave = "123456", rol = "ADMIN")
+                    UsuarioEntity(nombre = "Carlos Ortega", correo = "admin@pagoflex.cl", clave = "123456", rol = "ADMIN")
                 )
                 database.usuarioDao().registrar(
                     UsuarioEntity(nombre = "María Ejecutiva", correo = "ejecutivo@pagoflex.cl", clave = "123456", rol = "EJECUTIVO")
