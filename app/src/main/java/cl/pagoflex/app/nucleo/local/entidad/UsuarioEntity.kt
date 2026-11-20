@@ -10,5 +10,7 @@ data class UsuarioEntity(
     val correo: String,
     val clave: String,
     val rol: String = "USUARIO", // USUARIO, ADMIN, EJECUTIVO
-    val fotoUri: String? = null
+    val fotoUri: String? = null,
+    val rut: String = "",
+    val empresaId: Int? = null
 )

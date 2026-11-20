@@ -29,6 +29,7 @@ object BaseDatosModulo {
             PagoFlexDatabase::class.java,
             "pagoflex_local.db"
         )
+            .fallbackToDestructiveMigration()
             .addCallback(PagoFlexDatabase.SeedCallback { dbProvider.get() })
             .build()
     }

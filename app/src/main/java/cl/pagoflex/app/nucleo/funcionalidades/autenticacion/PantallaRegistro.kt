@@ -1,13 +1,17 @@
 package cl.pagoflex.app.nucleo.funcionalidades.autenticacion
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
@@ -20,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -69,7 +74,8 @@ fun PantallaRegistro(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val roles = listOf("USUARIO", "ADMIN", "EJECUTIVO")
+    val roles = listOf("USUARIO", "EJECUTIVO", "ADMIN")
+    val tiposEntidad = listOf("Empresa", "Edificio", "Jardín", "Club")
 
     var verContrasena by remember { mutableStateOf(false) }
     var verConfirmarContrasena by remember { mutableStateOf(false) }
@@ -120,6 +126,24 @@ fun PantallaRegistro(
             )
 
             OutlinedTextField(
+                value = uiState.rut,
+                onValueChange = { viewModel.onRutChange(it) },
+                label = { Text("RUT personal (ej: 12.345.678-9)") },
+                leadingIcon = { Icon(Icons.Default.AccountBox, contentDescription = null) },
+                trailingIcon = {
+                    if (uiState.errorRut != null) {
+                        Icon(Icons.Default.Warning, contentDescription = "Error", tint = MaterialTheme.colorScheme.error)
+                    }
+                },
+                isError = uiState.errorRut != null,
+                supportingText = {
+                    uiState.errorRut?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
                 value = uiState.correo,
                 onValueChange = { viewModel.onCorreoChange(it) },
                 label = { Text("Correo electrónico") },
@@ -146,6 +170,82 @@ fun PantallaRegistro(
                         onClick = { viewModel.onRolChange(rol) },
                         label = { Text(rol) }
                     )
+                }
+            }
+
+            if (uiState.rolSeleccionado == "EJECUTIVO") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Datos de la Empresa que representas",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        OutlinedTextField(
+                            value = uiState.nombreEmpresa,
+                            onValueChange = { viewModel.onNombreEmpresaChange(it) },
+                            label = { Text("Nombre de la empresa o entidad") },
+                            leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            isError = uiState.errorNombreEmpresa != null,
+                            supportingText = {
+                                uiState.errorNombreEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text("Tipo de entidad:", style = MaterialTheme.typography.labelMedium)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            tiposEntidad.forEach { tipo ->
+                                FilterChip(
+                                    selected = uiState.tipoEmpresa == tipo,
+                                    onClick = { viewModel.onTipoEmpresaChange(tipo) },
+                                    label = { Text(tipo) }
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = uiState.rutEmpresa,
+                            onValueChange = { viewModel.onRutEmpresaChange(it) },
+                            label = { Text("RUT Empresa (ej: 76.123.456-7)") },
+                            leadingIcon = { Icon(Icons.Default.AccountBox, contentDescription = null) },
+                            isError = uiState.errorRutEmpresa != null,
+                            supportingText = {
+                                uiState.errorRutEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = uiState.correoEmpresa,
+                            onValueChange = { viewModel.onCorreoEmpresaChange(it) },
+                            label = { Text("Correo institucional de la empresa") },
+                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            isError = uiState.errorCorreoEmpresa != null,
+                            supportingText = {
+                                uiState.errorCorreoEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
 

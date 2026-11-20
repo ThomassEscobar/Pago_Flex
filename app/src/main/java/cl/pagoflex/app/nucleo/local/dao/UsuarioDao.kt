@@ -15,6 +15,9 @@ interface UsuarioDao {
     @Query("SELECT * FROM usuarios WHERE id = :id LIMIT 1")
     fun observarUsuario(id: Int): Flow<UsuarioEntity?>
 
+    @Query("SELECT * FROM usuarios ORDER BY id ASC")
+    fun observarTodos(): Flow<List<UsuarioEntity>>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun registrar(usuario: UsuarioEntity): Long
 

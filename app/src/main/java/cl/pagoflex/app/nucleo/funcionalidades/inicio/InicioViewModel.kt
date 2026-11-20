@@ -2,25 +2,19 @@ package cl.pagoflex.app.nucleo.funcionalidades.inicio
 
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Patterns
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cl.pagoflex.app.nucleo.local.dao.CompromisoDao
+import cl.pagoflex.app.nucleo.local.dao.OrganizacionDao
+import cl.pagoflex.app.nucleo.local.dao.UsuarioDao
 import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
-import cl.pagoflex.app.nucleo.local.repositorio.PagoFlexRepository
 import cl.pagoflex.app.nucleo.util.NotificadorPagoFlex
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -28,75 +22,154 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.text.NumberFormat
-import java.util.Locale
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
+import kotlin.math.abs
+
+enum class EstadoVinculo {
+    PENDIENTE,
+    APROBADA,
+    RECHAZADA,
+    BLOQUEADA
+}
+
+data class SolicitudVinculacion(
+    val usuarioId: Int,
+    val organizacionId: Int,
+    val estado: EstadoVinculo,
+    val fechaSolicitud: String,
+    val motivoRechazo: String? = null
+)
 
 data class AsignacionCobro(
+    val compromisoId: Int,
     val usuarioId: Int,
     val usuarioNombre: String
 )
 
+data class PerfilFinancieroCliente(
+    val cliente: UsuarioEntity,
+    val solicitud: SolicitudVinculacion,
+    val strikesAcumulados: Int,
+    val detalleStrikes: List<String>,
+    val porcentajeCumplimiento: Int,
+    val pagados: Int,
+    val montoTotalPagado: Int,
+    val pendientes: Int,
+    val enRevision: Int,
+    val compromisosPorVencerCount: Int,
+    val rechazados: Int,
+    val montoDeudaActual: Int,
+    val nivelRiesgo: String,
+    val bloqueadoEnEstaEmpresa: Boolean
+)
+
+data class TicketSoporte(
+    val id: String,
+    val usuarioId: Int,
+    val usuarioNombre: String,
+    val usuarioRol: String,
+    val usuarioRut: String,
+    val empresaNombre: String?,
+    val categoria: String,
+    val asunto: String,
+    val mensaje: String,
+    val fechaCreacion: String,
+    val estado: String,
+    val respuestaAdmin: String? = null,
+    val fechaRespuesta: String? = null
+)
+
 data class InicioUiState(
+    val cargando: Boolean = false,
     val usuarioActual: UsuarioEntity? = null,
-    val compromisos: List<CompromisoEntity> = emptyList(),
-    val organizaciones: List<OrganizacionEntity> = emptyList(),
+    val todosUsuarios: List<UsuarioEntity> = emptyList(),
     val clientesDisponibles: List<UsuarioEntity> = emptyList(),
-    val vinculosUsuarioOrgs: Map<Int, Set<Int>> = emptyMap(),
-    val asignacionesCobros: Map<Int, AsignacionCobro> = emptyMap(),
+    val ejecutivosDisponibles: List<UsuarioEntity> = emptyList(),
+    val organizaciones: List<OrganizacionEntity> = emptyList(),
+    val compromisos: List<CompromisoEntity> = emptyList(),
+
+    // Filtros y búsquedas
     val filtroEstado: String = "TODOS",
     val textoBusqueda: String = "",
+    val busquedaClientesEmpresa: String = "",
+    val busquedaAdmin: String = "",
+    val busquedaPlataformaAdmin: String = "",
+    val filtroEmpresasAdmin: String = "TODAS",
+    val filtroSoporteAdmin: String = "PENDIENTES",
+    val filtroStrikesAdmin: String = "TODOS",
 
-    // Datos extra de perfil guardados por usuario
-    val avatarPath: String? = null,
-    val correoRespaldo: String = "",
+    // Vínculos, solicitudes y gobernanza
+    val vinculosUsuarioOrgs: Map<Int, Set<Int>> = emptyMap(),
+    val solicitudesVinculacion: List<SolicitudVinculacion> = emptyList(),
+    val asignacionesCobros: Map<Int, AsignacionCobro> = emptyMap(),
+    val bloqueosGlobalesApp: Map<Int, String> = emptyMap(),
+    val empresasSuspendidas: Map<Int, String> = emptyMap(),
 
-    // Formulario Compromiso (Crear / Editar)
+    // Soporte
+    val ticketsSoporte: List<TicketSoporte> = emptyList(),
+
+    // Diálogo nuevo compromiso (Ejecutivo)
     val mostrarDialogoCompromiso: Boolean = false,
-    val compromisoEditandoId: Int = 0,
     val orgSeleccionadaId: Int = 0,
     val orgSeleccionadaNombre: String = "",
-    val errorOrgCompromiso: String? = null,
-    val clienteSeleccionadoId: Int = 0,
+    val clienteSeleccionadoId: Int? = null,
     val clienteSeleccionadoNombre: String = "",
-    val errorClienteCompromiso: String? = null,
     val conceptoCompromiso: String = "",
-    val errorConceptoCompromiso: String? = null,
     val montoCompromiso: String = "",
-    val errorMontoCompromiso: String? = null,
     val fechaCompromiso: String = "",
+    val errorClienteCompromiso: String? = null,
+    val errorConceptoCompromiso: String? = null,
+    val errorMontoCompromiso: String? = null,
     val errorFechaCompromiso: String? = null,
 
-    // Formulario Organización (Crear / Editar)
-    val mostrarDialogoOrg: Boolean = false,
-    val orgEditandoId: Int = 0,
-    val nombreOrg: String = "",
-    val errorNombreOrg: String? = null,
-    val tipoOrg: String = "Empresa",
-    val rutOrg: String = "",
-    val errorRutOrg: String? = null,
-    val correoOrg: String = "",
-    val errorCorreoOrg: String? = null,
-
-    // Diálogos de Vínculos
+    // Diálogo Solicitar Vinculación (Usuario)
     val mostrarDialogoVincularEmpresaUsuario: Boolean = false,
-    val orgGestionClientes: OrganizacionEntity? = null,
 
-    // Modal 1: Foto de Perfil
+    // Diálogo Revisión Perfil Financiero (Ejecutivo)
+    val perfilFinancieroEnRevision: PerfilFinancieroCliente? = null,
+    val motivoRechazoSolicitudInput: String = "",
+    val errorMotivoRechazoSolicitud: String? = null,
+
+    // Diálogo Suspender Empresa (Admin)
+    val orgSuspendiendoAdmin: OrganizacionEntity? = null,
+    val motivoSuspensionOrgInput: String = "",
+    val errorMotivoSuspensionOrg: String? = null,
+
+    // Diálogo Gestionar Cuenta / Strikes (Admin)
+    val usuarioEditandoAdmin: UsuarioEntity? = null,
+    val motivoBloqueoAppInput: String = "",
+    val errorMotivoBloqueoApp: String? = null,
+
+    // Diálogo Soporte (Usuario / Ejecutivo)
+    val mostrarDialogoSoporteUsuario: Boolean = false,
+    val categoriaSoporteInput: String = "Problema con pago",
+    val asuntoSoporteInput: String = "",
+    val mensajeSoporteInput: String = "",
+    val errorAsuntoSoporte: String? = null,
+    val errorMensajeSoporte: String? = null,
+
+    // Diálogo Responder Ticket (Admin)
+    val ticketEnRevisionAdmin: TicketSoporte? = null,
+    val respuestaTicketAdminInput: String = "",
+    val errorRespuestaTicketAdmin: String? = null,
+
+    // Perfil y Seguridad
+    val avatarPath: String? = null,
+    val correoRespaldo: String = "",
     val mostrarDialogoFotoPerfil: Boolean = false,
-
-    // Modal 2: Datos Personales
     val mostrarDialogoDatosPersonales: Boolean = false,
     val nombrePerfilInput: String = "",
     val errorNombrePerfilInput: String? = null,
-
-    // Modal 3: Seguridad, Correos y Contraseña
     val mostrarDialogoSeguridad: Boolean = false,
     val correoPrincipalInput: String = "",
     val errorCorreoPrincipalInput: String? = null,
@@ -104,691 +177,320 @@ data class InicioUiState(
     val errorCorreoRespaldoInput: String? = null,
     val expandirCambioClavePerfil: Boolean = false,
     val claveActualPerfil: String = "",
-    val errorClaveActualPerfil: String? = null,
     val nuevaClavePerfil: String = "",
-    val errorClavePerfil: String? = null,
     val confirmarClavePerfil: String = "",
+    val errorClaveActualPerfil: String? = null,
+    val errorClavePerfil: String? = null,
     val errorConfirmarClavePerfil: String? = null,
 
+    // Feedback
     val mensajeSnackbar: String? = null,
     val ultimoInformeUri: Uri? = null
 )
 
 @HiltViewModel
 class InicioViewModel @Inject constructor(
-    private val repository: PagoFlexRepository
+    private val usuarioDao: UsuarioDao,
+    private val organizacionDao: OrganizacionDao,
+    private val compromisoDao: CompromisoDao
 ) : ViewModel() {
-
-    companion object {
-        private var seedDemoEjecutado = false
-        private const val PREFS_DEMO = "pagoflex_demo_prefs"
-        private const val KEY_GALERIA_CREADA = "galeria_comprobantes_creados_v1"
-        private const val PREFS_ASIGNACIONES = "pagoflex_asignaciones_cobros"
-        private const val PREFS_VINCULOS = "pagoflex_vinculos_usuario_org"
-        private const val PREFS_PERFIL_EXTRA = "pagoflex_perfil_extra_v1"
-        const val MOTIVO_RECHAZO_GENERAL = "El comprobante no ha podido ser corroborado."
-    }
 
     private val _uiState = MutableStateFlow(InicioUiState())
     val uiState: StateFlow<InicioUiState> = _uiState.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            repository.observarOrganizaciones().collect { lista ->
-                _uiState.update { state ->
-                    val primera = lista.firstOrNull()
-                    state.copy(
-                        organizaciones = lista,
-                        orgSeleccionadaId = if (state.orgSeleccionadaId == 0 && primera != null) primera.id else state.orgSeleccionadaId,
-                        orgSeleccionadaNombre = if (state.orgSeleccionadaNombre.isBlank() && primera != null) primera.nombre else state.orgSeleccionadaNombre
-                    )
+    companion object {
+        const val MOTIVO_RECHAZO_GENERAL = "El comprobante no ha podido ser corroborado."
+        const val STRIKES_UMBRAL_APP = 3
+        private const val PREFS_NAME = "pagoflex_estado_ext"
+        private val FORMATO_FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+        fun calcularDiasParaVencimiento(fechaVencimiento: String): Int? {
+            return try {
+                val fecha = if (fechaVencimiento.contains("/")) {
+                    LocalDate.parse(fechaVencimiento.trim(), FORMATO_FECHA)
+                } else {
+                    LocalDate.parse(fechaVencimiento.trim())
                 }
-            }
-        }
-        viewModelScope.launch {
-            repository.observarCompromisos().collect { lista ->
-                _uiState.update { it.copy(compromisos = lista) }
+                ChronoUnit.DAYS.between(LocalDate.now(), fecha).toInt()
+            } catch (_: Exception) {
+                null
             }
         }
     }
 
-    private suspend fun obtenerClientesEnRoom(): List<UsuarioEntity> {
-        val encontrados = mutableListOf<UsuarioEntity>()
-        for (id in 1..50) {
-            val u = repository.observarUsuario(id).firstOrNull()
-            if (u != null && u.rol == "USUARIO") {
-                encontrados.add(u)
-            }
-        }
-        return encontrados
-    }
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun inicializarEntorno(context: Context) {
-        cargarAsignacionesCobros(context)
-        cargarDatosExtraPerfil(context)
         viewModelScope.launch {
-            val actuales = repository.observarCompromisos().first()
-            if (!seedDemoEjecutado && actuales.size <= 2) {
-                seedDemoEjecutado = true
-                poblarDatosCompletosDemo()
-            }
-
-            val orgs = repository.observarOrganizaciones().first()
-            val clientes = obtenerClientesEnRoom()
-            _uiState.update { it.copy(clientesDisponibles = clientes) }
-
-            sincronizarVinculosPorDefecto(context, clientes, orgs)
-            asegurarCompromisoRechazadoParaClientes(context, clientes, orgs)
-            asignarImagenesACompromisosEnRevision(context)
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(PREFS_DEMO, Context.MODE_PRIVATE)
-            if (prefs.getBoolean(KEY_GALERIA_CREADA, false)) return@launch
-
-            val creadas = crearImagenesComprobantesEnGaleria(context)
-            if (creadas) {
-                prefs.edit().putBoolean(KEY_GALERIA_CREADA, true).apply()
+            cargarDesdePersistencia(context)
+            val sp = prefs(context)
+            if (!sp.getBoolean("entorno_demo_v2", false)) {
+                poblarDatosCompletosDemo(context)
+                sp.edit().putBoolean("entorno_demo_v2", true).apply()
             }
         }
     }
 
-    private suspend fun asegurarCompromisoRechazadoParaClientes(
-        context: Context,
-        clientes: List<UsuarioEntity>,
-        orgs: List<OrganizacionEntity>
-    ) {
-        if (orgs.isEmpty() || clientes.isEmpty()) return
-        val compromisosActuales = repository.observarCompromisos().first()
-        val vinculos = _uiState.value.vinculosUsuarioOrgs
-        val asignaciones = _uiState.value.asignacionesCobros
+    private suspend fun cargarDesdePersistencia(context: Context) {
+        val usuarios: List<UsuarioEntity> = usuarioDao.observarTodos().first()
+        val orgs: List<OrganizacionEntity> = organizacionDao.observarTodas().first()
+        val comps: List<CompromisoEntity> = compromisoDao.observarTodos().first()
 
-        clientes.forEach { cliente ->
-            val orgsCliente = vinculos[cliente.id].orEmpty()
-            val yaTieneRechazado = compromisosActuales.any { comp ->
-                comp.estado == "RECHAZADO" &&
-                        orgsCliente.contains(comp.organizacionId) &&
-                        (asignaciones[comp.id] == null || asignaciones[comp.id]?.usuarioId == cliente.id)
+        val sp = prefs(context)
+        val solicitudes = leerSolicitudesPrefs(sp)
+        val asignaciones = leerAsignacionesPrefs(sp)
+        val bloqueosApp = leerMapaIntStringPrefs(sp, "bloqueos_app")
+        val empresasSusp = leerMapaIntStringPrefs(sp, "empresas_suspendidas")
+        val tickets = leerTicketsPrefs(sp)
+
+        val vinculos = solicitudes
+            .filter { it.estado == EstadoVinculo.APROBADA }
+            .groupBy { it.usuarioId }
+            .mapValues { entry -> entry.value.map { it.organizacionId }.toSet() }
+
+        _uiState.update { state ->
+            val userRefrescado = state.usuarioActual?.let { actual ->
+                usuarios.find { it.id == actual.id } ?: actual
             }
+            state.copy(
+                usuarioActual = userRefrescado,
+                todosUsuarios = usuarios,
+                clientesDisponibles = usuarios.filter { it.rol == "USUARIO" },
+                ejecutivosDisponibles = usuarios.filter { it.rol == "EJECUTIVO" },
+                organizaciones = orgs,
+                compromisos = comps,
+                solicitudesVinculacion = solicitudes,
+                vinculosUsuarioOrgs = vinculos,
+                asignacionesCobros = asignaciones,
+                bloqueosGlobalesApp = bloqueosApp,
+                empresasSuspendidas = empresasSusp,
+                ticketsSoporte = tickets
+            )
+        }
+    }
 
-            if (!yaTieneRechazado) {
-                val orgDestino = orgs.find { orgsCliente.contains(it.id) } ?: orgs.first()
-                val conceptoEjemplo = "Reserva Sala Multiuso"
-                val nuevoRechazado = CompromisoEntity(
-                    organizacionId = orgDestino.id,
-                    empresaNombre = orgDestino.nombre,
-                    concepto = conceptoEjemplo,
-                    monto = 22000.0,
-                    fechaVencimiento = "12/11/2026",
-                    estado = "RECHAZADO"
+    private suspend fun poblarDatosCompletosDemo(context: Context) {
+        val sp = prefs(context)
+        val orgsActuales: List<OrganizacionEntity> = organizacionDao.observarTodas().first()
+        val usuariosActuales: List<UsuarioEntity> = usuarioDao.observarTodos().first()
+        val compsActuales: List<CompromisoEntity> = compromisoDao.observarTodos().first()
+
+        val hoy = LocalDate.now()
+        val primerCliente = usuariosActuales.firstOrNull { it.rol == "USUARIO" }
+        val segundoCliente = usuariosActuales.filter { it.rol == "USUARIO" }.getOrNull(1)
+        val primerEjecutivo = usuariosActuales.firstOrNull { it.rol == "EJECUTIVO" }
+        val primeraOrg = orgsActuales.firstOrNull()
+
+        if (leerSolicitudesPrefs(sp).isEmpty() && primerCliente != null && orgsActuales.isNotEmpty()) {
+            val solicitudesDemo = mutableListOf<SolicitudVinculacion>()
+            orgsActuales.take(2).forEach { org ->
+                solicitudesDemo.add(
+                    SolicitudVinculacion(
+                        usuarioId = primerCliente.id,
+                        organizacionId = org.id,
+                        estado = EstadoVinculo.APROBADA,
+                        fechaSolicitud = hoy.minusDays(20).format(FORMATO_FECHA)
+                    )
                 )
-                repository.guardarCompromiso(nuevoRechazado)
+            }
+            if (segundoCliente != null && primeraOrg != null) {
+                solicitudesDemo.add(
+                    SolicitudVinculacion(
+                        usuarioId = segundoCliente.id,
+                        organizacionId = primeraOrg.id,
+                        estado = EstadoVinculo.PENDIENTE,
+                        fechaSolicitud = hoy.minusDays(1).format(FORMATO_FECHA)
+                    )
+                )
+            }
+            guardarSolicitudesPrefs(sp, solicitudesDemo)
+        }
 
-                val recienCreado = repository.observarCompromisos().first()
-                    .filter {
-                        it.organizacionId == orgDestino.id &&
-                                it.concepto == conceptoEjemplo &&
-                                it.estado == "RECHAZADO"
-                    }
-                    .maxByOrNull { it.id }
-
-                if (recienCreado != null) {
-                    guardarAsignacionCobro(
-                        context = context,
-                        compromisoId = recienCreado.id,
-                        usuarioId = cliente.id,
-                        usuarioNombre = cliente.nombre
+        if (primerCliente != null && compsActuales.isNotEmpty()) {
+            val asigActuales = leerAsignacionesPrefs(sp).toMutableMap()
+            compsActuales.forEach { comp ->
+                if (!asigActuales.containsKey(comp.id)) {
+                    asigActuales[comp.id] = AsignacionCobro(
+                        compromisoId = comp.id,
+                        usuarioId = primerCliente.id,
+                        usuarioNombre = primerCliente.nombre
                     )
                 }
+            }
+            guardarAsignacionesPrefs(sp, asigActuales)
+        }
+
+        if (leerTicketsPrefs(sp).isEmpty()) {
+            val ticketsIniciales = buildList {
+                if (primerEjecutivo != null) {
+                    add(
+                        TicketSoporte(
+                            id = "TCK-1001",
+                            usuarioId = primerEjecutivo.id,
+                            usuarioNombre = primerEjecutivo.nombre,
+                            usuarioRol = "EJECUTIVO",
+                            usuarioRut = primerEjecutivo.rut,
+                            empresaNombre = primeraOrg?.nombre,
+                            categoria = "Validación de comprobante",
+                            asunto = "Validación de transferencia duplicada",
+                            mensaje = "Un residente adjuntó dos veces el mismo comprobante de gasto común. Necesitamos confirmar si el sistema lo bloquea.",
+                            fechaCreacion = hoy.minusDays(1).format(FORMATO_FECHA),
+                            estado = "PENDIENTE"
+                        )
+                    )
+                }
+                if (primerCliente != null) {
+                    add(
+                        TicketSoporte(
+                            id = "TCK-1002",
+                            usuarioId = primerCliente.id,
+                            usuarioNombre = primerCliente.nombre,
+                            usuarioRol = "USUARIO",
+                            usuarioRut = primerCliente.rut,
+                            empresaNombre = null,
+                            categoria = "Apelación de Strike",
+                            asunto = "Consulta sobre fecha de vencimiento",
+                            mensaje = "Realicé el pago dentro del plazo pero quedó en revisión hasta el día siguiente. ¿Me sumará strike?",
+                            fechaCreacion = hoy.minusDays(3).format(FORMATO_FECHA),
+                            estado = "RESUELTO",
+                            respuestaAdmin = "Mientras el comprobante sea aprobado por el ejecutivo, el strike asociado al cobro se elimina automáticamente.",
+                            fechaRespuesta = hoy.minusDays(2).format(FORMATO_FECHA)
+                        )
+                    )
+                }
+            }
+            guardarTicketsPrefs(sp, ticketsIniciales)
+        }
+
+        cargarDesdePersistencia(context)
+    }
+
+    fun cargarUsuario(usuarioId: Int) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(cargando = true) }
+            val user: UsuarioEntity? = usuarioDao.observarUsuario(usuarioId).first()
+            _uiState.update { state ->
+                state.copy(
+                    cargando = false,
+                    usuarioActual = user,
+                    filtroEstado = "TODOS"
+                )
             }
         }
     }
 
     fun cargarDatosExtraPerfil(context: Context) {
         val userId = _uiState.value.usuarioActual?.id ?: return
-        val prefs = context.getSharedPreferences(PREFS_PERFIL_EXTRA, Context.MODE_PRIVATE)
-        val pathGuardado = prefs.getString("avatar_$userId", null)
-        val pathValido = if (!pathGuardado.isNullOrBlank() && File(pathGuardado).exists()) pathGuardado else null
-
+        val sp = prefs(context)
+        val avatar = sp.getString("avatar_$userId", null)
+        val respaldo = sp.getString("respaldo_$userId", "") ?: ""
         _uiState.update {
             it.copy(
-                avatarPath = pathValido,
-                correoRespaldo = prefs.getString("correo_resp_$userId", "") ?: ""
+                avatarPath = avatar,
+                correoRespaldo = respaldo
             )
         }
     }
 
-    fun guardarFotoPerfilDesdeUri(context: Context, uri: Uri) {
-        val userId = _uiState.value.usuarioActual?.id ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
-                val bitmapOriginal = BitmapFactory.decodeStream(inputStream)
-                inputStream.close()
-                if (bitmapOriginal == null) return@launch
+    // ---------------------------------------------------------
+    // CÁLCULO DE STRIKES
+    // ---------------------------------------------------------
 
-                val maxLado = 512
-                val escala = minOf(
-                    maxLado.toFloat() / bitmapOriginal.width,
-                    maxLado.toFloat() / bitmapOriginal.height,
-                    1f
-                )
-                val anchoFinal = (bitmapOriginal.width * escala).toInt().coerceAtLeast(1)
-                val altoFinal = (bitmapOriginal.height * escala).toInt().coerceAtLeast(1)
-                val bitmapEscalado = Bitmap.createScaledBitmap(bitmapOriginal, anchoFinal, altoFinal, true)
-                if (bitmapEscalado != bitmapOriginal) {
-                    bitmapOriginal.recycle()
-                }
+    fun calcularStrikesCliente(usuarioId: Int): Pair<Int, List<String>> {
+        val state = _uiState.value
+        val orgsAprobadas = state.vinculosUsuarioOrgs[usuarioId].orEmpty()
 
-                val archivoDestino = File(context.filesDir, "avatar_user_${userId}_${System.currentTimeMillis()}.jpg")
-                context.filesDir
-                    .listFiles { f -> f.name.startsWith("avatar_user_${userId}_") }
-                    ?.forEach { it.delete() }
-
-                FileOutputStream(archivoDestino).use { out ->
-                    bitmapEscalado.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                }
-                bitmapEscalado.recycle()
-
-                val prefs = context.getSharedPreferences(PREFS_PERFIL_EXTRA, Context.MODE_PRIVATE)
-                prefs.edit().putString("avatar_$userId", archivoDestino.absolutePath).apply()
-
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            avatarPath = archivoDestino.absolutePath,
-                            mostrarDialogoFotoPerfil = false,
-                            mensajeSnackbar = "Foto de perfil actualizada"
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) {
-                    _uiState.update { it.copy(mensajeSnackbar = "No se pudo procesar la imagen seleccionada") }
-                }
-            }
-        }
-    }
-
-    fun eliminarFotoPerfil(context: Context) {
-        val userId = _uiState.value.usuarioActual?.id ?: return
-        val prefs = context.getSharedPreferences(PREFS_PERFIL_EXTRA, Context.MODE_PRIVATE)
-        val pathActual = prefs.getString("avatar_$userId", null)
-        if (!pathActual.isNullOrBlank()) {
-            File(pathActual).delete()
-        }
-        prefs.edit().remove("avatar_$userId").apply()
-        _uiState.update {
-            it.copy(
-                avatarPath = null,
-                mostrarDialogoFotoPerfil = false,
-                mensajeSnackbar = "Foto de perfil eliminada"
-            )
-        }
-    }
-
-    private fun sincronizarVinculosPorDefecto(
-        context: Context,
-        clientes: List<UsuarioEntity>,
-        orgs: List<OrganizacionEntity>
-    ) {
-        if (orgs.isEmpty()) return
-        val prefs = context.getSharedPreferences(PREFS_VINCULOS, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        var huboCambios = false
-
-        val orgMirador = orgs.find { it.nombre.contains("Mirador", ignoreCase = true) } ?: orgs.first()
-        val orgJardin = orgs.find { it.nombre.contains("Peques", ignoreCase = true) }
-        val orgClub = orgs.find { it.nombre.contains("Club", ignoreCase = true) }
-        val orgFibra = orgs.find { it.nombre.contains("FibraNet", ignoreCase = true) }
-
-        clientes.forEach { cliente ->
-            val keyInit = "init_user_${cliente.id}"
-            if (!prefs.getBoolean(keyInit, false)) {
-                val orgsIniciales = if (cliente.nombre.contains("Camila", ignoreCase = true)) {
-                    listOfNotNull(orgMirador.id, orgJardin?.id, orgClub?.id)
-                } else {
-                    listOfNotNull(orgMirador.id, orgFibra?.id ?: orgClub?.id)
-                }.map { it.toString() }.toSet()
-
-                editor.putStringSet("orgs_user_${cliente.id}", orgsIniciales)
-                editor.putBoolean(keyInit, true)
-                huboCambios = true
+        val compromisosCliente = state.compromisos.filter { comp ->
+            val asig = state.asignacionesCobros[comp.id]
+            if (asig != null) {
+                asig.usuarioId == usuarioId
+            } else {
+                orgsAprobadas.contains(comp.organizacionId)
             }
         }
 
-        if (huboCambios) {
-            editor.apply()
-        }
-        cargarVinculosDesdePrefs(context)
-    }
-
-    private fun cargarVinculosDesdePrefs(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_VINCULOS, Context.MODE_PRIVATE)
-        val mapa = mutableMapOf<Int, Set<Int>>()
-        prefs.all.forEach { (clave, valor) ->
-            if (clave.startsWith("orgs_user_") && valor is Set<*>) {
-                val userId = clave.removePrefix("orgs_user_").toIntOrNull()
-                if (userId != null) {
-                    val ids = valor.mapNotNull { it?.toString()?.toIntOrNull() }.toSet()
-                    mapa[userId] = ids
-                }
+        val detalles = compromisosCliente.mapNotNull { comp ->
+            if (comp.estado == "PAGADO") return@mapNotNull null
+            val dias = calcularDiasParaVencimiento(comp.fechaVencimiento) ?: return@mapNotNull null
+            if (dias < 0) {
+                "Strike por mora: ${comp.empresaNombre} - ${comp.concepto} (Venció hace ${abs(dias)} día(s))"
+            } else {
+                null
             }
         }
-        _uiState.update { it.copy(vinculosUsuarioOrgs = mapa) }
+        return detalles.size to detalles
     }
 
-    fun contarCompromisosSinPagar(userId: Int, orgId: Int): Int {
-        val st = _uiState.value
-        return st.compromisos.count { comp ->
-            comp.organizacionId == orgId &&
-                    comp.estado != "PAGADO" &&
-                    (st.asignacionesCobros[comp.id] == null || st.asignacionesCobros[comp.id]?.usuarioId == userId)
-        }
-    }
+    // ---------------------------------------------------------
+    // FILTROS Y BÚSQUEDAS
+    // ---------------------------------------------------------
 
-    fun alternarVinculoUsuarioEmpresa(context: Context, userId: Int, orgId: Int) {
-        val prefs = context.getSharedPreferences(PREFS_VINCULOS, Context.MODE_PRIVATE)
-        val actuales = prefs.getStringSet("orgs_user_$userId", emptySet())
-            ?.mapNotNull { it.toIntOrNull() }
-            ?.toMutableSet() ?: mutableSetOf()
-
-        if (actuales.contains(orgId)) {
-            val sinPagar = contarCompromisosSinPagar(userId, orgId)
-            if (sinPagar > 0) {
-                _uiState.update {
-                    it.copy(
-                        mensajeSnackbar = "No puedes desvincular esta empresa: tienes $sinPagar compromiso(s) sin pagar."
-                    )
-                }
-                return
-            }
-            actuales.remove(orgId)
-            prefs.edit()
-                .putStringSet("orgs_user_$userId", actuales.map { it.toString() }.toSet())
-                .putBoolean("init_user_$userId", true)
-                .apply()
-            cargarVinculosDesdePrefs(context)
-            _uiState.update { it.copy(mensajeSnackbar = "Empresa desvinculada") }
-        } else {
-            actuales.add(orgId)
-            prefs.edit()
-                .putStringSet("orgs_user_$userId", actuales.map { it.toString() }.toSet())
-                .putBoolean("init_user_$userId", true)
-                .apply()
-            cargarVinculosDesdePrefs(context)
-            _uiState.update { it.copy(mensajeSnackbar = "Vinculación activada") }
-        }
-    }
-
-    private fun cargarAsignacionesCobros(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_ASIGNACIONES, Context.MODE_PRIVATE)
-        val mapa = mutableMapOf<Int, AsignacionCobro>()
-        prefs.all.forEach { (clave, valor) ->
-            if (clave.startsWith("uid_") && valor is Int && valor > 0) {
-                val compId = clave.removePrefix("uid_").toIntOrNull()
-                if (compId != null) {
-                    val nombre = prefs.getString("uname_$compId", "Cliente asignado") ?: "Cliente asignado"
-                    mapa[compId] = AsignacionCobro(usuarioId = valor, usuarioNombre = nombre)
-                }
-            }
-        }
-        _uiState.update { it.copy(asignacionesCobros = mapa) }
-    }
-
-    private fun guardarAsignacionCobro(context: Context, compromisoId: Int, usuarioId: Int, usuarioNombre: String) {
-        val prefs = context.getSharedPreferences(PREFS_ASIGNACIONES, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putInt("uid_$compromisoId", usuarioId)
-            .putString("uname_$compromisoId", usuarioNombre)
-            .apply()
-        cargarAsignacionesCobros(context)
-    }
-
-    private suspend fun asignarImagenesACompromisosEnRevision(context: Context) {
-        val formatoClp = NumberFormat.getCurrencyInstance(Locale("es", "CL"))
-        val listaActual = repository.observarCompromisos().first()
-
-        listaActual.forEach { comp ->
-            val sinArchivoValido = comp.comprobanteUri.isNullOrBlank() ||
-                    !comp.comprobanteUri.startsWith("content://")
-
-            if (comp.estado == "REVISION" && sinArchivoValido) {
-                val uriGenerada = withContext(Dispatchers.IO) {
-                    crearVoucherLocalEnCache(
-                        context = context,
-                        nombreArchivo = "voucher_revision_${comp.id}.jpg",
-                        titulo = "COMPROBANTE EN REVISIÓN",
-                        empresa = comp.empresaNombre,
-                        concepto = comp.concepto,
-                        montoFormateado = formatoClp.format(comp.monto),
-                        operacion = "PFX-${1000 + comp.id}"
-                    )
-                }
-                if (uriGenerada != null) {
-                    repository.guardarCompromiso(comp.copy(comprobanteUri = uriGenerada))
-                }
-            }
-        }
-    }
-
-    private fun crearVoucherLocalEnCache(
-        context: Context,
-        nombreArchivo: String,
-        titulo: String,
-        empresa: String,
-        concepto: String,
-        montoFormateado: String,
-        operacion: String
-    ): String? {
-        return try {
-            val archivo = File(context.cacheDir, nombreArchivo)
-            val bitmap = dibujarBitmapComprobante(
-                titulo = titulo,
-                detalle = "Monto: $montoFormateado CLP • Op: $operacion",
-                empresa = empresa,
-                concepto = concepto
-            )
-            FileOutputStream(archivo).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-            }
-            bitmap.recycle()
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                archivo
-            ).toString()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun crearImagenesComprobantesEnGaleria(context: Context): Boolean {
-        return try {
-            val muestras = listOf(
-                Triple("Comprobante_Transferencia_01.jpg", "TRANSFERENCIA ELECTRÓNICA", "Monto: $88.500 CLP • Op: 948271"),
-                Triple("Comprobante_Pago_Webpay_02.jpg", "COMPROBANTE DE PAGO DIGITAL", "Monto: $45.000 CLP • Op: 773104")
-            )
-            var alMenosUna = false
-            muestras.forEach { (nombreArchivo, titulo, detalle) ->
-                val bitmap = dibujarBitmapComprobante(titulo, detalle)
-                val resolver = context.contentResolver
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, nombreArchivo)
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/PagoFlex")
-                        put(MediaStore.Images.Media.IS_PENDING, 1)
-                    }
-                }
-                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        values.clear()
-                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                        resolver.update(uri, values, null, null)
-                    }
-                    alMenosUna = true
-                }
-                bitmap.recycle()
-            }
-            alMenosUna
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun dibujarBitmapComprobante(
-        titulo: String,
-        detalle: String,
-        empresa: String = "Recaudación PagoFlex SpA",
-        concepto: String = "Pago de Compromiso"
-    ): Bitmap {
-        val ancho = 900
-        val alto = 1200
-        val bitmap = Bitmap.createBitmap(ancho, alto, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        canvas.drawColor(Color.WHITE)
-
-        val paintHeader = Paint().apply {
-            color = Color.rgb(30, 64, 175)
-            style = Paint.Style.FILL
-        }
-        canvas.drawRect(0f, 0f, ancho.toFloat(), 220f, paintHeader)
-
-        val paintTituloHeader = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 48f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        canvas.drawText("PagoFlex • Respaldo Oficial", 60f, 130f, paintTituloHeader)
-
-        val paintBorde = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(203, 213, 225)
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        canvas.drawRect(50f, 270f, ancho - 50f, alto - 120f, paintBorde)
-
-        val paintSubtitulo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(15, 23, 42)
-            textSize = 38f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val paintTexto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(51, 65, 85)
-            textSize = 32f
-        }
-        val paintVerde = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(22, 163, 74)
-            textSize = 36f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-
-        canvas.drawText(titulo, 90f, 360f, paintSubtitulo)
-        canvas.drawText("Estado: TRANSACCIÓN EXITOSA", 90f, 440f, paintVerde)
-        canvas.drawText(detalle, 90f, 520f, paintTexto)
-        canvas.drawText("Entidad: $empresa", 90f, 600f, paintTexto)
-        canvas.drawText("Concepto: $concepto", 90f, 680f, paintTexto)
-        canvas.drawText("Banco Origen: Banco Estado Chile", 90f, 760f, paintTexto)
-        canvas.drawText("Código Verificación: PFX-2026-88412-CL", 90f, 840f, paintTexto)
-
-        return bitmap
-    }
-
-    private suspend fun poblarDatosCompletosDemo() {
-        val orgsActuales = repository.observarOrganizaciones().first()
-
-        if (orgsActuales.none { it.nombre.contains("Club", ignoreCase = true) }) {
-            repository.guardarOrganizacion(
-                OrganizacionEntity(
-                    nombre = "Club Deportivo Oriente",
-                    tipo = "Club",
-                    rut = "65.432.198-K",
-                    correoContacto = "pagos@cluboriente.cl"
-                )
-            )
-        }
-        if (orgsActuales.none { it.nombre.contains("FibraNet", ignoreCase = true) }) {
-            repository.guardarOrganizacion(
-                OrganizacionEntity(
-                    nombre = "FibraNet Chile",
-                    tipo = "Empresa",
-                    rut = "76.890.123-4",
-                    correoContacto = "cobranza@fibranet.cl"
-                )
-            )
-        }
-
-        val orgs = repository.observarOrganizaciones().first()
-        val orgEdificio = orgs.find { it.nombre.contains("Mirador", ignoreCase = true) } ?: orgs.firstOrNull() ?: return
-        val orgJardin = orgs.find { it.nombre.contains("Peques", ignoreCase = true) } ?: orgEdificio
-        val orgClub = orgs.find { it.nombre.contains("Club", ignoreCase = true) } ?: orgEdificio
-        val orgFibra = orgs.find { it.nombre.contains("FibraNet", ignoreCase = true) } ?: orgEdificio
-
-        val compromisosDemo = listOf(
-            CompromisoEntity(
-                organizacionId = orgEdificio.id,
-                empresaNombre = orgEdificio.nombre,
-                concepto = "Gasto Común Diciembre",
-                monto = 88500.0,
-                fechaVencimiento = "30/12/2026",
-                estado = "PENDIENTE"
-            ),
-            CompromisoEntity(
-                organizacionId = orgClub.id,
-                empresaNombre = orgClub.nombre,
-                concepto = "Mensualidad Taller Natación",
-                monto = 45000.0,
-                fechaVencimiento = "10/12/2026",
-                estado = "PENDIENTE"
-            ),
-            CompromisoEntity(
-                organizacionId = orgFibra.id,
-                empresaNombre = orgFibra.nombre,
-                concepto = "Plan Internet Fibra 600MB",
-                monto = 29990.0,
-                fechaVencimiento = "15/12/2026",
-                estado = "PENDIENTE"
-            ),
-            CompromisoEntity(
-                organizacionId = orgJardin.id,
-                empresaNombre = orgJardin.nombre,
-                concepto = "Materiales y Actividades",
-                monto = 35000.0,
-                fechaVencimiento = "25/11/2026",
-                estado = "RECHAZADO"
-            ),
-            CompromisoEntity(
-                organizacionId = orgJardin.id,
-                empresaNombre = orgJardin.nombre,
-                concepto = "Matrícula Anual 2026",
-                monto = 240000.0,
-                fechaVencimiento = "05/03/2026",
-                estado = "PAGADO"
-            ),
-            CompromisoEntity(
-                organizacionId = orgEdificio.id,
-                empresaNombre = orgEdificio.nombre,
-                concepto = "Gasto Común Octubre",
-                monto = 82000.0,
-                fechaVencimiento = "31/10/2026",
-                estado = "PAGADO"
-            )
-        )
-
-        compromisosDemo.forEach { repository.guardarCompromiso(it) }
-    }
-
-    fun cargarUsuario(usuarioId: Int) {
-        viewModelScope.launch {
-            repository.observarUsuario(usuarioId).collect { user ->
-                if (user != null) {
-                    _uiState.update { state ->
-                        val cambioUsuario = state.usuarioActual?.id != user.id
-                        state.copy(
-                            usuarioActual = user,
-                            filtroEstado = if (cambioUsuario) {
-                                if (user.rol == "EJECUTIVO") "REVISION" else "TODOS"
-                            } else {
-                                state.filtroEstado
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun onFiltroEstadoChange(estado: String) {
-        _uiState.update { it.copy(filtroEstado = estado) }
+    fun onFiltroEstadoChange(nuevoFiltro: String) {
+        _uiState.update { it.copy(filtroEstado = nuevoFiltro) }
     }
 
     fun onBusquedaChange(texto: String) {
         _uiState.update { it.copy(textoBusqueda = texto) }
     }
 
-    fun limpiarSnackbar() {
-        _uiState.update { it.copy(mensajeSnackbar = null, ultimoInformeUri = null) }
+    fun onBusquedaClientesEmpresaChange(texto: String) {
+        _uiState.update { it.copy(busquedaClientesEmpresa = texto) }
     }
 
-    fun mostrarMensaje(mensaje: String) {
-        _uiState.update { it.copy(mensajeSnackbar = mensaje, ultimoInformeUri = null) }
+    fun onBusquedaAdminChange(texto: String) {
+        _uiState.update { it.copy(busquedaAdmin = texto) }
     }
 
-    // --- GESTIÓN DIÁLOGOS VÍNCULOS ---
-    fun abrirDialogoVincularEmpresaUsuario() {
-        _uiState.update { it.copy(mostrarDialogoVincularEmpresaUsuario = true) }
+    fun onBusquedaPlataformaAdminChange(texto: String) {
+        _uiState.update { it.copy(busquedaPlataformaAdmin = texto) }
     }
 
-    fun cerrarDialogoVincularEmpresaUsuario() {
-        _uiState.update { it.copy(mostrarDialogoVincularEmpresaUsuario = false) }
+    fun onFiltroEmpresasAdminChange(filtro: String) {
+        _uiState.update { it.copy(filtroEmpresasAdmin = filtro) }
     }
 
-    fun abrirDialogoClientesDeOrganizacion(org: OrganizacionEntity) {
-        _uiState.update { it.copy(orgGestionClientes = org) }
+    fun onFiltroSoporteAdminChange(filtro: String) {
+        _uiState.update { it.copy(filtroSoporteAdmin = filtro) }
     }
 
-    fun cerrarDialogoClientesDeOrganizacion() {
-        _uiState.update { it.copy(orgGestionClientes = null) }
+    fun onFiltroStrikesAdminChange(filtro: String) {
+        _uiState.update { it.copy(filtroStrikesAdmin = filtro) }
     }
 
-    // --- CRUD COMPROMISOS ---
+    // ---------------------------------------------------------
+    // COMPROMISOS Y COMPROBANTES
+    // ---------------------------------------------------------
+
     fun abrirDialogoNuevoCompromiso() {
-        val st = _uiState.value
-        val primeraOrg = st.organizaciones.firstOrNull()
-        val orgId = primeraOrg?.id ?: 0
-        val clientesDeEstaOrg = st.clientesDisponibles.filter { cliente ->
-            st.vinculosUsuarioOrgs[cliente.id]?.contains(orgId) == true
+        val state = _uiState.value
+        val user = state.usuarioActual ?: return
+        val org = state.organizaciones.find { it.id == user.empresaId } ?: return
+
+        if (state.empresasSuspendidas.containsKey(org.id)) {
+            mostrarMensaje("Tu empresa está suspendida por Administración y no puede emitir cobros.")
+            return
         }
-        val primerCliente = clientesDeEstaOrg.firstOrNull()
+
+        val clientesActivos = state.clientesDisponibles.filter { cliente ->
+            state.vinculosUsuarioOrgs[cliente.id]?.contains(org.id) == true &&
+                    !state.bloqueosGlobalesApp.containsKey(cliente.id)
+        }
+        val primerCliente = clientesActivos.firstOrNull()
 
         _uiState.update {
             it.copy(
                 mostrarDialogoCompromiso = true,
-                compromisoEditandoId = 0,
-                orgSeleccionadaId = orgId,
-                orgSeleccionadaNombre = primeraOrg?.nombre ?: "",
-                errorOrgCompromiso = null,
-                clienteSeleccionadoId = primerCliente?.id ?: 0,
+                orgSeleccionadaId = org.id,
+                orgSeleccionadaNombre = org.nombre,
+                clienteSeleccionadoId = primerCliente?.id,
                 clienteSeleccionadoNombre = primerCliente?.nombre ?: "",
-                errorClienteCompromiso = null,
                 conceptoCompromiso = "",
-                errorConceptoCompromiso = null,
                 montoCompromiso = "",
-                errorMontoCompromiso = null,
-                fechaCompromiso = "30/11/2026",
-                errorFechaCompromiso = null
-            )
-        }
-    }
-
-    fun abrirDialogoEditarCompromiso(comp: CompromisoEntity) {
-        val st = _uiState.value
-        val asignacionActual = st.asignacionesCobros[comp.id]
-        val clientesDeEstaOrg = st.clientesDisponibles.filter { cliente ->
-            st.vinculosUsuarioOrgs[cliente.id]?.contains(comp.organizacionId) == true
-        }
-        val clienteFallback = clientesDeEstaOrg.firstOrNull()
-
-        _uiState.update {
-            it.copy(
-                mostrarDialogoCompromiso = true,
-                compromisoEditandoId = comp.id,
-                orgSeleccionadaId = comp.organizacionId,
-                orgSeleccionadaNombre = comp.empresaNombre,
-                errorOrgCompromiso = null,
-                clienteSeleccionadoId = asignacionActual?.usuarioId ?: clienteFallback?.id ?: 0,
-                clienteSeleccionadoNombre = asignacionActual?.usuarioNombre ?: clienteFallback?.nombre ?: "",
+                fechaCompromiso = LocalDate.now().plusDays(15).format(FORMATO_FECHA),
                 errorClienteCompromiso = null,
-                conceptoCompromiso = comp.concepto,
                 errorConceptoCompromiso = null,
-                montoCompromiso = comp.monto.toInt().toString(),
                 errorMontoCompromiso = null,
-                fechaCompromiso = comp.fechaVencimiento,
                 errorFechaCompromiso = null
             )
         }
@@ -796,26 +498,6 @@ class InicioViewModel @Inject constructor(
 
     fun cerrarDialogoCompromiso() {
         _uiState.update { it.copy(mostrarDialogoCompromiso = false) }
-    }
-
-    fun onSeleccionarOrgCompromiso(org: OrganizacionEntity) {
-        val st = _uiState.value
-        val clientesDeEstaOrg = st.clientesDisponibles.filter { cliente ->
-            st.vinculosUsuarioOrgs[cliente.id]?.contains(org.id) == true
-        }
-        val clienteValido = clientesDeEstaOrg.find { it.id == st.clienteSeleccionadoId }
-            ?: clientesDeEstaOrg.firstOrNull()
-
-        _uiState.update {
-            it.copy(
-                orgSeleccionadaId = org.id,
-                orgSeleccionadaNombre = org.nombre,
-                errorOrgCompromiso = null,
-                clienteSeleccionadoId = clienteValido?.id ?: 0,
-                clienteSeleccionadoNombre = clienteValido?.nombre ?: "",
-                errorClienteCompromiso = null
-            )
-        }
     }
 
     fun onSeleccionarClienteCompromiso(cliente: UsuarioEntity) {
@@ -829,220 +511,589 @@ class InicioViewModel @Inject constructor(
     }
 
     fun onConceptoChange(valor: String) {
-        val error = when {
-            valor.isBlank() -> "El concepto es obligatorio"
-            valor.trim().length < 3 -> "Mínimo 3 caracteres"
-            else -> null
-        }
-        _uiState.update { it.copy(conceptoCompromiso = valor, errorConceptoCompromiso = error) }
+        _uiState.update { it.copy(conceptoCompromiso = valor, errorConceptoCompromiso = null) }
     }
 
     fun onMontoChange(valor: String) {
-        val soloNumeros = valor.filter { it.isDigit() }
-        val montoNum = soloNumeros.toDoubleOrNull() ?: 0.0
-        val error = when {
-            soloNumeros.isBlank() -> "El monto es obligatorio"
-            montoNum <= 0 -> "El monto debe ser mayor a $0"
-            else -> null
-        }
-        _uiState.update { it.copy(montoCompromiso = soloNumeros, errorMontoCompromiso = error) }
+        val limpio = valor.filter { it.isDigit() }
+        _uiState.update { it.copy(montoCompromiso = limpio, errorMontoCompromiso = null) }
     }
 
     fun onFechaChange(valor: String) {
-        val regex = Regex("""^\d{2}/\d{2}/\d{4}$""")
-        val error = if (!regex.matches(valor.trim())) "Usa formato DD/MM/AAAA" else null
-        _uiState.update { it.copy(fechaCompromiso = valor, errorFechaCompromiso = error) }
+        _uiState.update { it.copy(fechaCompromiso = valor, errorFechaCompromiso = null) }
     }
 
     fun guardarCompromiso(context: Context) {
-        val st = _uiState.value
-        onConceptoChange(st.conceptoCompromiso)
-        onMontoChange(st.montoCompromiso)
-        onFechaChange(st.fechaCompromiso)
+        val state = _uiState.value
+        val clienteId = state.clienteSeleccionadoId
+        val concepto = state.conceptoCompromiso.trim()
+        val monto = state.montoCompromiso.toDoubleOrNull() ?: 0.0
+        val fecha = state.fechaCompromiso.trim()
 
-        if (st.orgSeleccionadaId == 0 || st.orgSeleccionadaNombre.isBlank()) {
-            _uiState.update { it.copy(errorOrgCompromiso = "Crea o selecciona una empresa primero") }
-            return
+        var hayError = false
+        if (clienteId == null) {
+            _uiState.update { it.copy(errorClienteCompromiso = "Selecciona un cliente activo") }
+            hayError = true
         }
-        if (st.clienteSeleccionadoId == 0 || st.clienteSeleccionadoNombre.isBlank()) {
-            _uiState.update { it.copy(errorClienteCompromiso = "Selecciona un cliente vinculado a esta empresa") }
-            return
+        if (concepto.length < 3) {
+            _uiState.update { it.copy(errorConceptoCompromiso = "Ingresa un concepto válido (mín. 3 car.)") }
+            hayError = true
         }
-
-        val act = _uiState.value
-        if (act.errorConceptoCompromiso != null || act.errorMontoCompromiso != null || act.errorFechaCompromiso != null) return
+        if (monto <= 0.0) {
+            _uiState.update { it.copy(errorMontoCompromiso = "Ingresa un monto mayor a $0") }
+            hayError = true
+        }
+        if (calcularDiasParaVencimiento(fecha) == null) {
+            _uiState.update { it.copy(errorFechaCompromiso = "Usa formato DD/MM/AAAA válido") }
+            hayError = true
+        }
+        if (hayError || clienteId == null) return
 
         viewModelScope.launch {
-            val existente = act.compromisos.find { it.id == act.compromisoEditandoId }
-            val entidad = CompromisoEntity(
-                id = act.compromisoEditandoId,
-                organizacionId = act.orgSeleccionadaId,
-                empresaNombre = act.orgSeleccionadaNombre,
-                concepto = act.conceptoCompromiso.trim(),
-                monto = act.montoCompromiso.toDouble(),
-                fechaVencimiento = act.fechaCompromiso.trim(),
-                estado = existente?.estado ?: "PENDIENTE",
-                comprobanteUri = existente?.comprobanteUri
+            val nuevo = CompromisoEntity(
+                organizacionId = state.orgSeleccionadaId,
+                empresaNombre = state.orgSeleccionadaNombre,
+                concepto = concepto,
+                monto = monto,
+                fechaVencimiento = fecha,
+                estado = "PENDIENTE",
+                comprobanteUri = null
             )
-            repository.guardarCompromiso(entidad)
+            compromisoDao.insertar(nuevo)
 
-            val idAsignar = if (act.compromisoEditandoId != 0) {
-                act.compromisoEditandoId
-            } else {
-                repository.observarCompromisos().first()
-                    .filter { it.concepto == entidad.concepto && it.empresaNombre == entidad.empresaNombre }
-                    .maxByOrNull { it.id }?.id ?: 0
-            }
+            val compsActualizados: List<CompromisoEntity> = compromisoDao.observarTodos().first()
+            val creado = compsActualizados.maxByOrNull { it.id }
 
-            if (idAsignar != 0) {
-                guardarAsignacionCobro(
-                    context = context,
-                    compromisoId = idAsignar,
-                    usuarioId = act.clienteSeleccionadoId,
-                    usuarioNombre = act.clienteSeleccionadoNombre
+            if (creado != null) {
+                val sp = prefs(context)
+                val asigMap = leerAsignacionesPrefs(sp).toMutableMap()
+                asigMap[creado.id] = AsignacionCobro(
+                    compromisoId = creado.id,
+                    usuarioId = clienteId,
+                    usuarioNombre = state.clienteSeleccionadoNombre
                 )
+                guardarAsignacionesPrefs(sp, asigMap)
             }
 
-            NotificadorPagoFlex.mostrarNotificacion(
-                context,
-                "Cobro emitido a ${act.clienteSeleccionadoNombre}",
-                "${entidad.empresaNombre}: ${entidad.concepto} ($${entidad.monto.toInt()})"
-            )
+            cargarDesdePersistencia(context)
             _uiState.update {
                 it.copy(
                     mostrarDialogoCompromiso = false,
-                    mensajeSnackbar = if (act.compromisoEditandoId == 0) {
-                        "Cobro asignado a ${act.clienteSeleccionadoNombre}"
-                    } else {
-                        "Compromiso actualizado"
-                    }
+                    mensajeSnackbar = "Cobro emitido a ${state.clienteSeleccionadoNombre}"
                 )
             }
         }
     }
 
     fun registrarComprobante(context: Context, compromisoId: Int, uriString: String?) {
+        if (uriString.isNullOrBlank()) return
         viewModelScope.launch {
-            repository.subirComprobante(compromisoId, uriString)
-            NotificadorPagoFlex.mostrarNotificacion(
-                context,
-                "Comprobante en revisión",
-                "Tu comprobante fue enviado al Ejecutivo para validación."
-            )
-            _uiState.update { it.copy(mensajeSnackbar = "Comprobante enviado a revisión") }
+            compromisoDao.registrarComprobante(compromisoId, "REVISION", uriString)
+            cargarDesdePersistencia(context)
+            mostrarMensaje("Comprobante enviado a revisión del Ejecutivo.")
         }
     }
 
     fun resolverComprobante(context: Context, compromisoId: Int, aprobado: Boolean) {
-        val comp = _uiState.value.compromisos.find { it.id == compromisoId }
-        val descripcion = comp?.let { "${it.concepto} (${it.empresaNombre})" } ?: "El compromiso"
         viewModelScope.launch {
-            repository.resolverComprobante(compromisoId, aprobado)
-            val mensajeDetalle = if (aprobado) {
-                "$descripcion fue aprobado y conciliado."
-            } else {
-                "$descripcion fue rechazado. Motivo: $MOTIVO_RECHAZO_GENERAL"
-            }
+            val comp = _uiState.value.compromisos.find { it.id == compromisoId } ?: return@launch
+            val nuevoEstado = if (aprobado) "PAGADO" else "RECHAZADO"
+            compromisoDao.cambiarEstado(compromisoId, nuevoEstado)
+
+            cargarDesdePersistencia(context)
             NotificadorPagoFlex.mostrarNotificacion(
                 context,
-                if (aprobado) "Comprobante aprobado" else "Comprobante rechazado",
-                mensajeDetalle
+                if (aprobado) "Pago aprobado" else "Comprobante rechazado",
+                "${comp.empresaNombre}: ${comp.concepto}"
             )
-            _uiState.update { it.copy(mensajeSnackbar = mensajeDetalle) }
+            mostrarMensaje(if (aprobado) "Pago verificado y conciliado." else "Comprobante rechazado.")
         }
     }
 
-    // --- CRUD ORGANIZACIONES / EMPRESAS ---
-    fun abrirDialogoNuevaOrg() {
-        _uiState.update {
-            it.copy(
-                mostrarDialogoOrg = true,
-                orgEditandoId = 0,
-                nombreOrg = "",
-                errorNombreOrg = null,
-                tipoOrg = "Empresa",
-                rutOrg = "",
-                errorRutOrg = null,
-                correoOrg = "",
-                errorCorreoOrg = null
-            )
+    // ---------------------------------------------------------
+    // VINCULACIÓN Y REVISIÓN DE PERFIL FINANCIERO (EJECUTIVO / CLIENTE)
+    // ---------------------------------------------------------
+
+    fun abrirDialogoVincularEmpresaUsuario() {
+        _uiState.update { it.copy(mostrarDialogoVincularEmpresaUsuario = true) }
+    }
+
+    fun cerrarDialogoVincularEmpresaUsuario() {
+        _uiState.update { it.copy(mostrarDialogoVincularEmpresaUsuario = false) }
+    }
+
+    fun solicitarVinculacionEmpresa(context: Context, usuarioId: Int, organizacionId: Int) {
+        if (_uiState.value.empresasSuspendidas.containsKey(organizacionId)) {
+            mostrarMensaje("Esta empresa se encuentra suspendida temporalmente por Administración.")
+            return
         }
-    }
-
-    fun abrirDialogoEditarOrg(org: OrganizacionEntity) {
-        _uiState.update {
-            it.copy(
-                mostrarDialogoOrg = true,
-                orgEditandoId = org.id,
-                nombreOrg = org.nombre,
-                errorNombreOrg = null,
-                tipoOrg = org.tipo,
-                rutOrg = org.rut,
-                errorRutOrg = null,
-                correoOrg = org.correoContacto,
-                errorCorreoOrg = null
-            )
-        }
-    }
-
-    fun cerrarDialogoOrg() {
-        _uiState.update { it.copy(mostrarDialogoOrg = false) }
-    }
-
-    fun onNombreOrgChange(valor: String) {
-        val error = if (valor.trim().length < 2) "Ingresa el nombre de la organización" else null
-        _uiState.update { it.copy(nombreOrg = valor, errorNombreOrg = error) }
-    }
-
-    fun onTipoOrgChange(tipo: String) {
-        _uiState.update { it.copy(tipoOrg = tipo) }
-    }
-
-    fun onRutOrgChange(valor: String) {
-        val error = if (valor.trim().length < 8) "RUT inválido (ej: 76.123.456-7)" else null
-        _uiState.update { it.copy(rutOrg = valor, errorRutOrg = error) }
-    }
-
-    fun onCorreoOrgChange(valor: String) {
-        val error = if (!Patterns.EMAIL_ADDRESS.matcher(valor.trim()).matches()) "Correo de contacto inválido" else null
-        _uiState.update { it.copy(correoOrg = valor, errorCorreoOrg = error) }
-    }
-
-    fun guardarOrganizacion() {
-        val st = _uiState.value
-        onNombreOrgChange(st.nombreOrg)
-        onRutOrgChange(st.rutOrg)
-        onCorreoOrgChange(st.correoOrg)
-
-        val act = _uiState.value
-        if (act.errorNombreOrg != null || act.errorRutOrg != null || act.errorCorreoOrg != null) return
-
         viewModelScope.launch {
-            val org = OrganizacionEntity(
-                id = act.orgEditandoId,
-                nombre = act.nombreOrg.trim(),
-                tipo = act.tipoOrg,
-                rut = act.rutOrg.trim(),
-                correoContacto = act.correoOrg.trim()
+            val sp = prefs(context)
+            val lista = leerSolicitudesPrefs(sp).toMutableList()
+            lista.removeAll { it.usuarioId == usuarioId && it.organizacionId == organizacionId }
+            lista.add(
+                SolicitudVinculacion(
+                    usuarioId = usuarioId,
+                    organizacionId = organizacionId,
+                    estado = EstadoVinculo.PENDIENTE,
+                    fechaSolicitud = LocalDate.now().format(FORMATO_FECHA),
+                    motivoRechazo = null
+                )
             )
-            repository.guardarOrganizacion(org)
+            guardarSolicitudesPrefs(sp, lista)
+            cargarDesdePersistencia(context)
             _uiState.update {
                 it.copy(
-                    mostrarDialogoOrg = false,
-                    mensajeSnackbar = if (act.orgEditandoId == 0) "Organización creada" else "Organización actualizada"
+                    mostrarDialogoVincularEmpresaUsuario = false,
+                    mensajeSnackbar = "Solicitud de vinculación enviada."
                 )
             }
         }
     }
 
-    fun eliminarOrganizacion(org: OrganizacionEntity) {
+    fun cancelarODesvincularEmpresaUsuario(context: Context, usuarioId: Int, organizacionId: Int) {
+        val state = _uiState.value
+        val solicitud = state.solicitudesVinculacion.find {
+            it.usuarioId == usuarioId && it.organizacionId == organizacionId
+        } ?: return
+
+        if (solicitud.estado == EstadoVinculo.APROBADA) {
+            val deuda = state.compromisos.count { comp ->
+                comp.organizacionId == organizacionId &&
+                        comp.estado != "PAGADO" &&
+                        (state.asignacionesCobros[comp.id] == null ||
+                                state.asignacionesCobros[comp.id]?.usuarioId == usuarioId)
+            }
+            if (deuda > 0) {
+                mostrarMensaje("No puedes desvincularte mientras tengas $deuda compromiso(s) sin pagar.")
+                return
+            }
+        }
+
         viewModelScope.launch {
-            repository.eliminarOrganizacion(org)
-            _uiState.update { it.copy(mensajeSnackbar = "Organización eliminada") }
+            val sp = prefs(context)
+            val lista = leerSolicitudesPrefs(sp).toMutableList()
+            lista.removeAll { it.usuarioId == usuarioId && it.organizacionId == organizacionId }
+            guardarSolicitudesPrefs(sp, lista)
+            cargarDesdePersistencia(context)
+            mostrarMensaje("Vínculo eliminado correctamente.")
         }
     }
 
-    // --- MODAL 1: FOTO DE PERFIL ---
+    fun abrirRevisionPerfilCliente(solicitud: SolicitudVinculacion) {
+        val state = _uiState.value
+        val cliente = state.clientesDisponibles.find { it.id == solicitud.usuarioId } ?: return
+        val (strikes, detalleStrikes) = calcularStrikesCliente(cliente.id)
+
+        val orgsAprobadas = state.vinculosUsuarioOrgs[cliente.id].orEmpty()
+        val historial = state.compromisos.filter { comp ->
+            val asig = state.asignacionesCobros[comp.id]
+            if (asig != null) asig.usuarioId == cliente.id else orgsAprobadas.contains(comp.organizacionId)
+        }
+
+        val pagadosList = historial.filter { it.estado == "PAGADO" }
+        val pendientesList = historial.filter { it.estado == "PENDIENTE" }
+        val revisionList = historial.filter { it.estado == "REVISION" }
+        val rechazadosList = historial.filter { it.estado == "RECHAZADO" }
+        val porVencerCount = (pendientesList + rechazadosList).count {
+            (calcularDiasParaVencimiento(it.fechaVencimiento) ?: 99) in 0..3
+        }
+        val deudaTotal = historial.filter { it.estado != "PAGADO" }.sumOf { it.monto }.toInt()
+        val cumplimiento = if (historial.isEmpty()) 100 else (pagadosList.size * 100) / historial.size
+
+        val riesgo = when {
+            strikes > 0 -> "ALTO ($strikes Strike(s) por mora • Apto para bloqueo de Cliente)"
+            rechazadosList.isNotEmpty() -> "MEDIO (Comprobantes rechazados en historial)"
+            pendientesList.size >= 2 -> "MODERADO (Múltiples compromisos abiertos)"
+            else -> "BAJO (Buen comportamiento histórico)"
+        }
+
+        val perfil = PerfilFinancieroCliente(
+            cliente = cliente,
+            solicitud = solicitud,
+            strikesAcumulados = strikes,
+            detalleStrikes = detalleStrikes,
+            porcentajeCumplimiento = cumplimiento,
+            pagados = pagadosList.size,
+            montoTotalPagado = pagadosList.sumOf { it.monto }.toInt(),
+            pendientes = pendientesList.size,
+            enRevision = revisionList.size,
+            compromisosPorVencerCount = porVencerCount,
+            rechazados = rechazadosList.size,
+            montoDeudaActual = deudaTotal,
+            nivelRiesgo = riesgo,
+            bloqueadoEnEstaEmpresa = solicitud.estado == EstadoVinculo.BLOQUEADA
+        )
+
+        _uiState.update {
+            it.copy(
+                perfilFinancieroEnRevision = perfil,
+                motivoRechazoSolicitudInput = "",
+                errorMotivoRechazoSolicitud = null
+            )
+        }
+    }
+
+    fun cerrarRevisionPerfilCliente() {
+        _uiState.update {
+            it.copy(
+                perfilFinancieroEnRevision = null,
+                motivoRechazoSolicitudInput = "",
+                errorMotivoRechazoSolicitud = null
+            )
+        }
+    }
+
+    fun onMotivoRechazoSolicitudChange(texto: String) {
+        _uiState.update {
+            it.copy(
+                motivoRechazoSolicitudInput = texto,
+                errorMotivoRechazoSolicitud = null
+            )
+        }
+    }
+
+    fun resolverSolicitudVinculacion(context: Context, aprobar: Boolean) {
+        val state = _uiState.value
+        val perfil = state.perfilFinancieroEnRevision ?: return
+        val motivo = state.motivoRechazoSolicitudInput.trim()
+
+        if (!aprobar && motivo.length < 5) {
+            _uiState.update { it.copy(errorMotivoRechazoSolicitud = "Indica un motivo de rechazo (mín. 5 caracteres)") }
+            return
+        }
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val lista = leerSolicitudesPrefs(sp).toMutableList()
+            val idx = lista.indexOfFirst {
+                it.usuarioId == perfil.solicitud.usuarioId && it.organizacionId == perfil.solicitud.organizacionId
+            }
+            if (idx >= 0) {
+                lista[idx] = lista[idx].copy(
+                    estado = if (aprobar) EstadoVinculo.APROBADA else EstadoVinculo.RECHAZADA,
+                    motivoRechazo = if (aprobar) null else motivo
+                )
+                guardarSolicitudesPrefs(sp, lista)
+            }
+
+            cargarDesdePersistencia(context)
+            cerrarRevisionPerfilCliente()
+            mostrarMensaje(if (aprobar) "Cliente aprobado y vinculado." else "Solicitud rechazada.")
+        }
+    }
+
+    fun cambiarBloqueoClienteEmpresa(context: Context, bloquear: Boolean) {
+        val state = _uiState.value
+        val perfil = state.perfilFinancieroEnRevision ?: return
+        val motivo = state.motivoRechazoSolicitudInput.trim()
+
+        if (bloquear && motivo.length < 5) {
+            _uiState.update { it.copy(errorMotivoRechazoSolicitud = "Ingresa el motivo de bloqueo (mín. 5 caracteres)") }
+            return
+        }
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val lista = leerSolicitudesPrefs(sp).toMutableList()
+            val idx = lista.indexOfFirst {
+                it.usuarioId == perfil.solicitud.usuarioId && it.organizacionId == perfil.solicitud.organizacionId
+            }
+            if (idx >= 0) {
+                lista[idx] = lista[idx].copy(
+                    estado = if (bloquear) EstadoVinculo.BLOQUEADA else EstadoVinculo.APROBADA,
+                    motivoRechazo = if (bloquear) motivo else null
+                )
+                guardarSolicitudesPrefs(sp, lista)
+            }
+
+            cargarDesdePersistencia(context)
+            cerrarRevisionPerfilCliente()
+            mostrarMensaje(if (bloquear) "Cliente bloqueado en tu empresa." else "Cliente desbloqueado.")
+        }
+    }
+
+    // ---------------------------------------------------------
+    // ADMINISTRACIÓN: SUSPENSIÓN DE EMPRESAS Y BLOQUEO GLOBAL DE CUENTAS
+    // ---------------------------------------------------------
+
+    fun abrirDialogoSuspenderEmpresaAdmin(org: OrganizacionEntity) {
+        _uiState.update {
+            it.copy(
+                orgSuspendiendoAdmin = org,
+                motivoSuspensionOrgInput = "",
+                errorMotivoSuspensionOrg = null
+            )
+        }
+    }
+
+    fun cerrarDialogoSuspenderEmpresaAdmin() {
+        _uiState.update {
+            it.copy(
+                orgSuspendiendoAdmin = null,
+                motivoSuspensionOrgInput = "",
+                errorMotivoSuspensionOrg = null
+            )
+        }
+    }
+
+    fun onMotivoSuspensionOrgChange(texto: String) {
+        _uiState.update {
+            it.copy(
+                motivoSuspensionOrgInput = texto,
+                errorMotivoSuspensionOrg = null
+            )
+        }
+    }
+
+    fun toggleSuspensionEmpresaAdmin(context: Context, suspender: Boolean) {
+        val state = _uiState.value
+        val org = state.orgSuspendiendoAdmin ?: return
+        val motivo = state.motivoSuspensionOrgInput.trim()
+
+        if (suspender && motivo.length < 5) {
+            _uiState.update { it.copy(errorMotivoSuspensionOrg = "Ingresa el motivo de suspensión (mín. 5 car.)") }
+            return
+        }
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val mapa = leerMapaIntStringPrefs(sp, "empresas_suspendidas").toMutableMap()
+            if (suspender) {
+                mapa[org.id] = motivo
+            } else {
+                mapa.remove(org.id)
+            }
+            guardarMapaIntStringPrefs(sp, "empresas_suspendidas", mapa)
+
+            cargarDesdePersistencia(context)
+            cerrarDialogoSuspenderEmpresaAdmin()
+            mostrarMensaje(
+                if (suspender) "Empresa ${org.nombre} suspendida." else "Empresa ${org.nombre} reactivada."
+            )
+        }
+    }
+
+    fun abrirDialogoGestionarUsuarioAdmin(usuario: UsuarioEntity) {
+        _uiState.update {
+            it.copy(
+                usuarioEditandoAdmin = usuario,
+                motivoBloqueoAppInput = "",
+                errorMotivoBloqueoApp = null
+            )
+        }
+    }
+
+    fun cerrarDialogoGestionarUsuarioAdmin() {
+        _uiState.update {
+            it.copy(
+                usuarioEditandoAdmin = null,
+                motivoBloqueoAppInput = "",
+                errorMotivoBloqueoApp = null
+            )
+        }
+    }
+
+    fun onMotivoBloqueoAppChange(texto: String) {
+        _uiState.update { it.copy(motivoBloqueoAppInput = texto, errorMotivoBloqueoApp = null) }
+    }
+
+    fun toggleBloqueoGlobalUsuarioApp(context: Context, usuario: UsuarioEntity, bloquear: Boolean) {
+        val motivo = _uiState.value.motivoBloqueoAppInput.trim()
+        if (bloquear && motivo.length < 5) {
+            _uiState.update { it.copy(errorMotivoBloqueoApp = "Indica el motivo de suspensión global (mín. 5 car.)") }
+            return
+        }
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val mapa = leerMapaIntStringPrefs(sp, "bloqueos_app").toMutableMap()
+            val prefsSeguridadGlobal = context.getSharedPreferences("pagoflex_seguridad_global", Context.MODE_PRIVATE)
+
+            if (bloquear) {
+                mapa[usuario.id] = motivo
+                prefsSeguridadGlobal.edit().putString("bloqueo_motivo_${usuario.id}", motivo).apply()
+            } else {
+                mapa.remove(usuario.id)
+                prefsSeguridadGlobal.edit().remove("bloqueo_motivo_${usuario.id}").apply()
+            }
+            guardarMapaIntStringPrefs(sp, "bloqueos_app", mapa)
+
+            cargarDesdePersistencia(context)
+            cerrarDialogoGestionarUsuarioAdmin()
+            mostrarMensaje(
+                if (bloquear) "Cuenta de ${usuario.nombre} suspendida de la app."
+                else "Acceso reactivado para ${usuario.nombre}."
+            )
+        }
+    }
+
+    // ---------------------------------------------------------
+    // BUZÓN DE SOPORTE
+    // ---------------------------------------------------------
+
+    fun abrirDialogoSoporteUsuario() {
+        val rol = _uiState.value.usuarioActual?.rol
+        val categoriaInicial = if (rol == "EJECUTIVO") {
+            "Validación de comprobante"
+        } else {
+            "Problema con pago"
+        }
+        _uiState.update {
+            it.copy(
+                mostrarDialogoSoporteUsuario = true,
+                categoriaSoporteInput = categoriaInicial,
+                asuntoSoporteInput = "",
+                mensajeSoporteInput = "",
+                errorAsuntoSoporte = null,
+                errorMensajeSoporte = null
+            )
+        }
+    }
+
+    fun cerrarDialogoSoporteUsuario() {
+        _uiState.update { it.copy(mostrarDialogoSoporteUsuario = false) }
+    }
+
+    fun onCategoriaSoporteChange(categoria: String) {
+        _uiState.update { it.copy(categoriaSoporteInput = categoria) }
+    }
+
+    fun onAsuntoSoporteChange(asunto: String) {
+        _uiState.update { it.copy(asuntoSoporteInput = asunto, errorAsuntoSoporte = null) }
+    }
+
+    fun onMensajeSoporteChange(mensaje: String) {
+        _uiState.update { it.copy(mensajeSoporteInput = mensaje, errorMensajeSoporte = null) }
+    }
+
+    fun enviarTicketSoporte(context: Context) {
+        val state = _uiState.value
+        val user = state.usuarioActual ?: return
+        val asunto = state.asuntoSoporteInput.trim()
+        val mensaje = state.mensajeSoporteInput.trim()
+
+        var error = false
+        if (asunto.length < 4) {
+            _uiState.update { it.copy(errorAsuntoSoporte = "Escribe un asunto breve (mín. 4 caracteres)") }
+            error = true
+        }
+        if (mensaje.length < 10) {
+            _uiState.update { it.copy(errorMensajeSoporte = "Detalla tu consulta o problema (mín. 10 caracteres)") }
+            error = true
+        }
+        if (error) return
+
+        val empresaNombre = if (user.rol == "EJECUTIVO") {
+            state.organizaciones.find { it.id == user.empresaId }?.nombre
+        } else {
+            null
+        }
+
+        val categoriaFinal = if (user.rol == "EJECUTIVO" && state.categoriaSoporteInput == "Apelación de Strike") {
+            "Validación de comprobante"
+        } else {
+            state.categoriaSoporteInput
+        }
+
+        val nuevoTicket = TicketSoporte(
+            id = "TCK-${System.currentTimeMillis().toString().takeLast(4)}",
+            usuarioId = user.id,
+            usuarioNombre = user.nombre,
+            usuarioRol = user.rol,
+            usuarioRut = user.rut,
+            empresaNombre = empresaNombre,
+            categoria = categoriaFinal,
+            asunto = asunto,
+            mensaje = mensaje,
+            fechaCreacion = LocalDate.now().format(FORMATO_FECHA),
+            estado = "PENDIENTE"
+        )
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val lista = listOf(nuevoTicket) + leerTicketsPrefs(sp)
+            guardarTicketsPrefs(sp, lista)
+
+            cargarDesdePersistencia(context)
+            _uiState.update {
+                it.copy(
+                    asuntoSoporteInput = "",
+                    mensajeSoporteInput = "",
+                    mensajeSnackbar = "Mensaje enviado a Administración (${nuevoTicket.id})."
+                )
+            }
+        }
+    }
+
+    fun abrirDialogoResponderTicketAdmin(ticket: TicketSoporte) {
+        if (ticket.estado == "RESUELTO") {
+            mostrarMensaje("Este ticket ya fue resuelto y su respuesta es definitiva.")
+            return
+        }
+        _uiState.update {
+            it.copy(
+                ticketEnRevisionAdmin = ticket,
+                respuestaTicketAdminInput = "",
+                errorRespuestaTicketAdmin = null
+            )
+        }
+    }
+
+    fun cerrarDialogoResponderTicketAdmin() {
+        _uiState.update {
+            it.copy(
+                ticketEnRevisionAdmin = null,
+                respuestaTicketAdminInput = "",
+                errorRespuestaTicketAdmin = null
+            )
+        }
+    }
+
+    fun onRespuestaTicketAdminChange(texto: String) {
+        _uiState.update { it.copy(respuestaTicketAdminInput = texto, errorRespuestaTicketAdmin = null) }
+    }
+
+    fun resolverTicketSoporteAdmin(context: Context) {
+        val state = _uiState.value
+        val ticket = state.ticketEnRevisionAdmin ?: return
+        if (ticket.estado == "RESUELTO") {
+            cerrarDialogoResponderTicketAdmin()
+            mostrarMensaje("Este ticket ya fue resuelto y no admite modificaciones.")
+            return
+        }
+        val respuesta = state.respuestaTicketAdminInput.trim()
+
+        if (respuesta.length < 5) {
+            _uiState.update { it.copy(errorRespuestaTicketAdmin = "Escribe una respuesta para el usuario (mín. 5 car.)") }
+            return
+        }
+
+        viewModelScope.launch {
+            val sp = prefs(context)
+            val lista = leerTicketsPrefs(sp).map {
+                if (it.id == ticket.id && it.estado != "RESUELTO") {
+                    it.copy(
+                        estado = "RESUELTO",
+                        respuestaAdmin = respuesta,
+                        fechaRespuesta = LocalDate.now().format(FORMATO_FECHA)
+                    )
+                } else {
+                    it
+                }
+            }
+            guardarTicketsPrefs(sp, lista)
+
+            cargarDesdePersistencia(context)
+            cerrarDialogoResponderTicketAdmin()
+            mostrarMensaje("Respuesta enviada y ticket ${ticket.id} marcado como resuelto.")
+        }
+    }
+
+    // ---------------------------------------------------------
+    // PERFIL, FOTO Y SEGURIDAD
+    // ---------------------------------------------------------
+
     fun abrirDialogoFotoPerfil() {
         _uiState.update { it.copy(mostrarDialogoFotoPerfil = true) }
     }
@@ -1051,7 +1102,47 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(mostrarDialogoFotoPerfil = false) }
     }
 
-    // --- MODAL 2: DATOS PERSONALES ---
+    fun guardarFotoPerfilDesdeUri(context: Context, uri: Uri) {
+        val userId = _uiState.value.usuarioActual?.id ?: return
+        viewModelScope.launch {
+            val ruta = withContext(Dispatchers.IO) {
+                try {
+                    val destino = File(context.filesDir, "avatar_user_$userId.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destino).use { output -> input.copyTo(output) }
+                    }
+                    destino.absolutePath
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (ruta != null) {
+                prefs(context).edit().putString("avatar_$userId", ruta).apply()
+                _uiState.update {
+                    it.copy(
+                        avatarPath = ruta,
+                        mostrarDialogoFotoPerfil = false,
+                        mensajeSnackbar = "Foto de perfil actualizada."
+                    )
+                }
+            } else {
+                mostrarMensaje("No se pudo procesar la imagen seleccionada.")
+            }
+        }
+    }
+
+    fun eliminarFotoPerfil(context: Context) {
+        val userId = _uiState.value.usuarioActual?.id ?: return
+        prefs(context).edit().remove("avatar_$userId").apply()
+        _uiState.update {
+            it.copy(
+                avatarPath = null,
+                mostrarDialogoFotoPerfil = false,
+                mensajeSnackbar = "Foto de perfil eliminada."
+            )
+        }
+    }
+
     fun abrirDialogoDatosPersonales() {
         val user = _uiState.value.usuarioActual ?: return
         _uiState.update {
@@ -1068,45 +1159,45 @@ class InicioViewModel @Inject constructor(
     }
 
     fun onNombrePerfilInputChange(valor: String) {
-        val error = if (valor.trim().length < 3) "Mínimo 3 caracteres" else null
-        _uiState.update { it.copy(nombrePerfilInput = valor, errorNombrePerfilInput = error) }
+        _uiState.update { it.copy(nombrePerfilInput = valor, errorNombrePerfilInput = null) }
     }
 
     fun guardarDatosPersonales() {
-        val st = _uiState.value
-        val user = st.usuarioActual ?: return
-        onNombrePerfilInputChange(st.nombrePerfilInput)
-        val act = _uiState.value
-        if (act.errorNombrePerfilInput != null) return
-
+        val user = _uiState.value.usuarioActual ?: return
+        val nuevoNombre = _uiState.value.nombrePerfilInput.trim()
+        if (nuevoNombre.length < 3) {
+            _uiState.update { it.copy(errorNombrePerfilInput = "Ingresa un nombre válido (mín. 3 caracteres)") }
+            return
+        }
         viewModelScope.launch {
-            repository.actualizarUsuario(user.copy(nombre = act.nombrePerfilInput.trim()))
+            val actualizado = user.copy(nombre = nuevoNombre)
+            usuarioDao.actualizar(actualizado)
             _uiState.update {
                 it.copy(
+                    usuarioActual = actualizado,
                     mostrarDialogoDatosPersonales = false,
-                    mensajeSnackbar = "Nombre actualizado correctamente"
+                    mensajeSnackbar = "Nombre actualizado correctamente."
                 )
             }
         }
     }
 
-    // --- MODAL 3: SEGURIDAD, CORREOS Y CLAVE ---
     fun abrirDialogoSeguridad() {
-        val st = _uiState.value
-        val user = st.usuarioActual ?: return
+        val state = _uiState.value
+        val user = state.usuarioActual ?: return
         _uiState.update {
             it.copy(
                 mostrarDialogoSeguridad = true,
                 correoPrincipalInput = user.correo,
                 errorCorreoPrincipalInput = null,
-                correoRespaldoInput = st.correoRespaldo,
+                correoRespaldoInput = state.correoRespaldo,
                 errorCorreoRespaldoInput = null,
                 expandirCambioClavePerfil = false,
                 claveActualPerfil = "",
-                errorClaveActualPerfil = null,
                 nuevaClavePerfil = "",
-                errorClavePerfil = null,
                 confirmarClavePerfil = "",
+                errorClaveActualPerfil = null,
+                errorClavePerfil = null,
                 errorConfirmarClavePerfil = null
             )
         }
@@ -1117,33 +1208,22 @@ class InicioViewModel @Inject constructor(
     }
 
     fun onCorreoPrincipalInputChange(valor: String) {
-        val error = when {
-            valor.isBlank() -> "El correo principal no puede quedar vacío"
-            !Patterns.EMAIL_ADDRESS.matcher(valor.trim()).matches() -> "Formato de correo inválido"
-            else -> null
-        }
-        _uiState.update { it.copy(correoPrincipalInput = valor, errorCorreoPrincipalInput = error) }
+        _uiState.update { it.copy(correoPrincipalInput = valor, errorCorreoPrincipalInput = null) }
     }
 
     fun onCorreoRespaldoInputChange(valor: String) {
-        val error = if (valor.isNotBlank() && !Patterns.EMAIL_ADDRESS.matcher(valor.trim()).matches()) {
-            "Formato de correo de respaldo inválido"
-        } else {
-            null
-        }
-        _uiState.update { it.copy(correoRespaldoInput = valor, errorCorreoRespaldoInput = error) }
+        _uiState.update { it.copy(correoRespaldoInput = valor, errorCorreoRespaldoInput = null) }
     }
 
     fun eliminarCorreoRespaldo(context: Context) {
-        val user = _uiState.value.usuarioActual ?: return
-        val prefs = context.getSharedPreferences(PREFS_PERFIL_EXTRA, Context.MODE_PRIVATE)
-        prefs.edit().remove("correo_resp_${user.id}").apply()
+        val userId = _uiState.value.usuarioActual?.id ?: return
+        prefs(context).edit().remove("respaldo_$userId").apply()
         _uiState.update {
             it.copy(
                 correoRespaldo = "",
                 correoRespaldoInput = "",
                 errorCorreoRespaldoInput = null,
-                mensajeSnackbar = "Correo de respaldo eliminado"
+                mensajeSnackbar = "Correo de respaldo eliminado."
             )
         }
     }
@@ -1152,245 +1232,305 @@ class InicioViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 expandirCambioClavePerfil = expandir,
-                claveActualPerfil = "",
                 errorClaveActualPerfil = null,
-                nuevaClavePerfil = "",
                 errorClavePerfil = null,
-                confirmarClavePerfil = "",
                 errorConfirmarClavePerfil = null
             )
         }
     }
 
     fun onClaveActualPerfilChange(valor: String) {
-        val claveReal = _uiState.value.usuarioActual?.clave ?: ""
-        val error = when {
-            valor.isBlank() -> "Ingresa tu contraseña actual para confirmar"
-            valor != claveReal -> "La contraseña actual no es correcta"
-            else -> null
-        }
-        _uiState.update { it.copy(claveActualPerfil = valor, errorClaveActualPerfil = error) }
+        _uiState.update { it.copy(claveActualPerfil = valor, errorClaveActualPerfil = null) }
     }
 
     fun onNuevaClavePerfilChange(valor: String) {
-        val claveReal = _uiState.value.usuarioActual?.clave ?: ""
-        val errorNueva = when {
-            valor.length < 6 -> "Mínimo 6 caracteres"
-            valor == claveReal -> "Debe ser distinta a la contraseña actual"
-            else -> null
-        }
-        val confirmar = _uiState.value.confirmarClavePerfil
-        val errorConfirmar = when {
-            confirmar.isBlank() -> "Confirma tu nueva contraseña"
-            confirmar != valor -> "Las contraseñas nuevas no coinciden"
-            else -> null
-        }
-        _uiState.update {
-            it.copy(
-                nuevaClavePerfil = valor,
-                errorClavePerfil = errorNueva,
-                errorConfirmarClavePerfil = errorConfirmar
-            )
-        }
+        _uiState.update { it.copy(nuevaClavePerfil = valor, errorClavePerfil = null) }
     }
 
     fun onConfirmarClavePerfilChange(valor: String) {
-        val nueva = _uiState.value.nuevaClavePerfil
-        val error = when {
-            valor.isBlank() -> "Confirma tu nueva contraseña"
-            valor != nueva -> "Las contraseñas nuevas no coinciden"
-            else -> null
-        }
-        _uiState.update { it.copy(confirmarClavePerfil = valor, errorConfirmarClavePerfil = error) }
+        _uiState.update { it.copy(confirmarClavePerfil = valor, errorConfirmarClavePerfil = null) }
     }
 
     fun guardarSeguridadCuenta(context: Context) {
-        val st = _uiState.value
-        val user = st.usuarioActual ?: return
+        val state = _uiState.value
+        val user = state.usuarioActual ?: return
+        val correoNuevo = state.correoPrincipalInput.trim()
+        val respaldoNuevo = state.correoRespaldoInput.trim()
+        val cambiaCorreo = correoNuevo != user.correo
+        val cambiaClave = state.expandirCambioClavePerfil
 
-        onCorreoPrincipalInputChange(st.correoPrincipalInput)
-        onCorreoRespaldoInputChange(st.correoRespaldoInput)
-
-        val cambiaCorreoPrincipal = st.correoPrincipalInput.trim() != user.correo
-        val intentaCambiarClave = st.expandirCambioClavePerfil ||
-                st.nuevaClavePerfil.isNotBlank() ||
-                st.confirmarClavePerfil.isNotBlank()
-
-        if (cambiaCorreoPrincipal || intentaCambiarClave) {
-            onClaveActualPerfilChange(st.claveActualPerfil)
-        } else {
-            _uiState.update { it.copy(errorClaveActualPerfil = null) }
+        var hayError = false
+        if (!correoNuevo.contains("@") || correoNuevo.length < 5) {
+            _uiState.update { it.copy(errorCorreoPrincipalInput = "Ingresa un correo principal válido") }
+            hayError = true
         }
-
-        if (intentaCambiarClave) {
-            onNuevaClavePerfilChange(st.nuevaClavePerfil)
-            onConfirmarClavePerfilChange(st.confirmarClavePerfil)
-        } else {
-            _uiState.update {
-                it.copy(
-                    errorClavePerfil = null,
-                    errorConfirmarClavePerfil = null
-                )
+        if (respaldoNuevo.isNotEmpty() && (!respaldoNuevo.contains("@") || respaldoNuevo == correoNuevo)) {
+            _uiState.update { it.copy(errorCorreoRespaldoInput = "Debe ser un correo válido y distinto al principal") }
+            hayError = true
+        }
+        if (cambiaClave) {
+            if (state.nuevaClavePerfil.length < 6) {
+                _uiState.update { it.copy(errorClavePerfil = "Mínimo 6 caracteres") }
+                hayError = true
+            }
+            if (state.nuevaClavePerfil != state.confirmarClavePerfil) {
+                _uiState.update { it.copy(errorConfirmarClavePerfil = "Las contraseñas no coinciden") }
+                hayError = true
             }
         }
-
-        val act = _uiState.value
-        if (act.errorCorreoPrincipalInput != null ||
-            act.errorCorreoRespaldoInput != null ||
-            act.errorClaveActualPerfil != null ||
-            act.errorClavePerfil != null ||
-            act.errorConfirmarClavePerfil != null
-        ) return
+        if (hayError) return
 
         viewModelScope.launch {
-            val correoFinal = act.correoPrincipalInput.trim()
-            val claveFinal = if (intentaCambiarClave) act.nuevaClavePerfil else user.clave
-
-            repository.actualizarUsuario(
-                user.copy(
-                    correo = correoFinal,
-                    clave = claveFinal
-                )
-            )
-
-            val prefs = context.getSharedPreferences(PREFS_PERFIL_EXTRA, Context.MODE_PRIVATE)
-            val respLimpio = act.correoRespaldoInput.trim()
-            if (respLimpio.isBlank()) {
-                prefs.edit().remove("correo_resp_${user.id}").apply()
-            } else {
-                prefs.edit().putString("correo_resp_${user.id}", respLimpio).apply()
+            if (cambiaCorreo || cambiaClave) {
+                val valido = usuarioDao.login(user.correo, state.claveActualPerfil) != null
+                if (!valido) {
+                    _uiState.update { it.copy(errorClaveActualPerfil = "La contraseña actual no coincide") }
+                    return@launch
+                }
             }
+
+            if (cambiaCorreo) {
+                usuarioDao.actualizar(user.copy(correo = correoNuevo))
+            }
+            if (cambiaClave) {
+                usuarioDao.actualizarClave(correoNuevo, state.nuevaClavePerfil)
+            }
+            val userRefrescado = usuarioDao.observarUsuario(user.id).first() ?: user.copy(correo = correoNuevo)
+            prefs(context).edit().putString("respaldo_${user.id}", respaldoNuevo).apply()
 
             _uiState.update {
                 it.copy(
+                    usuarioActual = userRefrescado,
+                    correoRespaldo = respaldoNuevo,
                     mostrarDialogoSeguridad = false,
-                    correoRespaldo = respLimpio,
-                    claveActualPerfil = "",
-                    nuevaClavePerfil = "",
-                    confirmarClavePerfil = "",
-                    mensajeSnackbar = "Configuración de seguridad y correos actualizada"
+                    mensajeSnackbar = "Configuración de seguridad guardada."
                 )
             }
         }
     }
 
-    // --- DESCARGA REAL DE INFORME DE GASTOS PROPIOS (USUARIO) / GENERAL (GESTOR) ---
+    // ---------------------------------------------------------
+    // EXPORTACIÓN CSV
+    // ---------------------------------------------------------
+
     fun exportarReporteCsv(context: Context) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val st = _uiState.value
-                val user = st.usuarioActual
-                val esGestorCobros = user?.rol == "ADMIN" || user?.rol == "EJECUTIVO"
-                val asignaciones = st.asignacionesCobros
+        viewModelScope.launch {
+            val state = _uiState.value
+            val user = state.usuarioActual ?: return@launch
+            val rol = user.rol
 
-                val sb = StringBuilder()
-                sb.append('\uFEFF')
-
-                val nombreArchivo: String
-                if (!esGestorCobros && user != null) {
-                    val orgsVinculadas = st.vinculosUsuarioOrgs[user.id].orEmpty()
-                    val misGastos = st.compromisos.filter { comp ->
-                        val perteneceAEmpresaVinculada = orgsVinculadas.contains(comp.organizacionId)
-                        val asignacion = asignaciones[comp.id]
-                        val correspondeAlUsuario = asignacion == null || asignacion.usuarioId == user.id
-                        perteneceAEmpresaVinculada && correspondeAlUsuario
+            val contenidoCsv = buildString {
+                if (rol == "ADMIN") {
+                    appendLine("Empresa,RUT,Tipo,Estado,Ejecutivos,Clientes Activos,Total Emitido CLP,Conciliado CLP,Pendiente CLP,Vencido Mora CLP")
+                    state.organizaciones.forEach { org ->
+                        val compsOrg = state.compromisos.filter { it.organizacionId == org.id }
+                        val emitido = compsOrg.sumOf { it.monto }.toInt()
+                        val pagado = compsOrg.filter { it.estado == "PAGADO" }.sumOf { it.monto }.toInt()
+                        val vencido = compsOrg.filter {
+                            it.estado != "PAGADO" && (calcularDiasParaVencimiento(it.fechaVencimiento) ?: 0) < 0
+                        }.sumOf { it.monto }.toInt()
+                        val pendiente = emitido - pagado
+                        val ejecutivos = state.ejecutivosDisponibles.filter { it.empresaId == org.id }.joinToString(" / ") { it.nombre }.ifBlank { "Sin asignar" }
+                        val clientesAct = state.clientesDisponibles.count { state.vinculosUsuarioOrgs[it.id]?.contains(org.id) == true }
+                        val estadoOrg = if (state.empresasSuspendidas.containsKey(org.id)) "SUSPENDIDA" else "ACTIVA"
+                        appendLine("\"${org.nombre}\",\"${org.rut}\",\"${org.tipo}\",\"$estadoOrg\",\"$ejecutivos\",$clientesAct,$emitido,$pagado,$pendiente,$vencido")
                     }
-
-                    val nombreSeguro = user.nombre
-                        .trim()
-                        .replace(Regex("[^A-Za-z0-9]"), "_")
-                        .replace(Regex("_+"), "_")
-                    nombreArchivo = "Informe_Gastos_${nombreSeguro}_${System.currentTimeMillis() / 1000}.csv"
-
-                    sb.appendLine("INFORME PERSONAL DE GASTOS Y COMPROMISOS - PAGOFLEX")
-                    sb.appendLine("Titular;${user.nombre}")
-                    sb.appendLine("Correo;${user.correo}")
-                    sb.appendLine("")
-                    sb.appendLine("Vencimiento;Empresa_o_Entidad;Concepto;Monto_CLP;Estado;Observacion")
-
-                    misGastos.forEach { c ->
-                        val obs = when (c.estado) {
-                            "PAGADO" -> "Pago verificado y conciliado"
-                            "REVISION" -> "Comprobante enviado, pendiente de validacion"
-                            "RECHAZADO" -> MOTIVO_RECHAZO_GENERAL
-                            else -> "Pendiente de pago"
-                        }
-                        sb.appendLine("${c.fechaVencimiento};${c.empresaNombre};${c.concepto};${c.monto.toInt()};${c.estado};$obs")
-                    }
-
-                    val totalPagado = misGastos.filter { it.estado == "PAGADO" }.sumOf { it.monto.toInt() }
-                    val totalPorPagar = misGastos.filter { it.estado == "PENDIENTE" || it.estado == "RECHAZADO" }.sumOf { it.monto.toInt() }
-                    val totalRevision = misGastos.filter { it.estado == "REVISION" }.sumOf { it.monto.toInt() }
-
-                    sb.appendLine("")
-                    sb.appendLine("RESUMEN DE MIS GASTOS;;;Monto_CLP;;")
-                    sb.appendLine("Total Pagado (Conciliado);;;$totalPagado;;")
-                    sb.appendLine("Total En Revision;;;$totalRevision;;")
-                    sb.appendLine("Total Por Pagar / Regularizar;;;$totalPorPagar;;")
                 } else {
-                    nombreArchivo = "Reporte_Consolidado_PagoFlex_${System.currentTimeMillis() / 1000}.csv"
-                    sb.appendLine("Empresa;Cliente_Asignado;Concepto;Monto_CLP;Vencimiento;Estado;Observacion")
-                    st.compromisos.forEach { c ->
-                        val cliente = asignaciones[c.id]?.usuarioNombre ?: "Clientes Vinculados"
-                        val obs = if (c.estado == "RECHAZADO") MOTIVO_RECHAZO_GENERAL else "-"
-                        sb.appendLine("${c.empresaNombre};$cliente;${c.concepto};${c.monto.toInt()};${c.fechaVencimiento};${c.estado};$obs")
-                    }
-                }
-
-                val contenidoBytes = sb.toString().toByteArray(Charsets.UTF_8)
-
-                val archivoCache = File(context.cacheDir, nombreArchivo)
-                archivoCache.writeBytes(contenidoBytes)
-                val uriApertura = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    archivoCache
-                )
-
-                var guardadoEnDescargas = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, nombreArchivo)
-                        put(MediaStore.Downloads.MIME_TYPE, "text/csv")
-                        put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/PagoFlex")
-                        put(MediaStore.Downloads.IS_PENDING, 1)
-                    }
-                    val resolver = context.contentResolver
-                    val downloadUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    if (downloadUri != null) {
-                        resolver.openOutputStream(downloadUri)?.use { out ->
-                            out.write(contenidoBytes)
-                        }
-                        values.clear()
-                        values.put(MediaStore.Downloads.IS_PENDING, 0)
-                        resolver.update(downloadUri, values, null, null)
-                        guardadoEnDescargas = true
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    val destinoTexto = if (guardadoEnDescargas) {
-                        "Informe descargado en Descargas/PagoFlex"
+                    appendLine("ID,Empresa,Concepto,Monto CLP,Vencimiento,Estado")
+                    val lista = if (rol == "EJECUTIVO") {
+                        state.compromisos.filter { it.organizacionId == user.empresaId }
                     } else {
-                        "Informe de gastos generado"
+                        val orgs = state.vinculosUsuarioOrgs[user.id].orEmpty()
+                        state.compromisos.filter { orgs.contains(it.organizacionId) }
                     }
-                    _uiState.update {
-                        it.copy(
-                            mensajeSnackbar = destinoTexto,
-                            ultimoInformeUri = uriApertura
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            mensajeSnackbar = "No se pudo descargar el informe: ${e.message}",
-                            ultimoInformeUri = null
-                        )
+                    lista.forEach { c ->
+                        appendLine("${c.id},\"${c.empresaNombre}\",\"${c.concepto}\",${c.monto.toInt()},\"${c.fechaVencimiento}\",\"${c.estado}\"")
                     }
                 }
             }
+
+            val nombreArchivo = "PagoFlex_Informe_${rol}_${System.currentTimeMillis()}.csv"
+            val uriGuardado = withContext(Dispatchers.IO) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val values = ContentValues().apply {
+                            put(MediaStore.Downloads.DISPLAY_NAME, nombreArchivo)
+                            put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+                            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        }
+                        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                        if (uri != null) {
+                            context.contentResolver.openOutputStream(uri)?.use {
+                                it.write(contenidoCsv.toByteArray(Charsets.UTF_8))
+                            }
+                        }
+                        uri
+                    } else {
+                        val file = File(context.cacheDir, nombreArchivo)
+                        file.writeText(contenidoCsv, Charsets.UTF_8)
+                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            if (uriGuardado != null) {
+                _uiState.update {
+                    it.copy(
+                        ultimoInformeUri = uriGuardado,
+                        mensajeSnackbar = "Informe guardado en Descargas ($nombreArchivo)."
+                    )
+                }
+            } else {
+                mostrarMensaje("No se pudo generar el archivo CSV.")
+            }
         }
+    }
+
+    fun mostrarMensaje(mensaje: String) {
+        _uiState.update { it.copy(mensajeSnackbar = mensaje) }
+    }
+
+    fun limpiarSnackbar() {
+        _uiState.update { it.copy(mensajeSnackbar = null, ultimoInformeUri = null) }
+    }
+
+    // ---------------------------------------------------------
+    // SERIALIZACIÓN SHAREDPREFERENCES
+    // ---------------------------------------------------------
+
+    private fun leerSolicitudesPrefs(sp: android.content.SharedPreferences): List<SolicitudVinculacion> {
+        val raw = sp.getString("solicitudes_vinculacion", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                SolicitudVinculacion(
+                    usuarioId = obj.getInt("usuarioId"),
+                    organizacionId = obj.getInt("organizacionId"),
+                    estado = EstadoVinculo.valueOf(obj.getString("estado")),
+                    fechaSolicitud = obj.getString("fechaSolicitud"),
+                    motivoRechazo = if (obj.isNull("motivoRechazo")) null else obj.getString("motivoRechazo")
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun guardarSolicitudesPrefs(sp: android.content.SharedPreferences, lista: List<SolicitudVinculacion>) {
+        val arr = JSONArray()
+        lista.forEach { s ->
+            arr.put(JSONObject().apply {
+                put("usuarioId", s.usuarioId)
+                put("organizacionId", s.organizacionId)
+                put("estado", s.estado.name)
+                put("fechaSolicitud", s.fechaSolicitud)
+                put("motivoRechazo", s.motivoRechazo ?: JSONObject.NULL)
+            })
+        }
+        sp.edit().putString("solicitudes_vinculacion", arr.toString()).apply()
+    }
+
+    private fun leerAsignacionesPrefs(sp: android.content.SharedPreferences): Map<Int, AsignacionCobro> {
+        val raw = sp.getString("asignaciones_cobros", null) ?: return emptyMap()
+        return try {
+            val arr = JSONArray(raw)
+            val map = mutableMapOf<Int, AsignacionCobro>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val compId = obj.getInt("compromisoId")
+                map[compId] = AsignacionCobro(
+                    compromisoId = compId,
+                    usuarioId = obj.getInt("usuarioId"),
+                    usuarioNombre = obj.getString("usuarioNombre")
+                )
+            }
+            map
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun guardarAsignacionesPrefs(sp: android.content.SharedPreferences, map: Map<Int, AsignacionCobro>) {
+        val arr = JSONArray()
+        map.values.forEach { a ->
+            arr.put(JSONObject().apply {
+                put("compromisoId", a.compromisoId)
+                put("usuarioId", a.usuarioId)
+                put("usuarioNombre", a.usuarioNombre)
+            })
+        }
+        sp.edit().putString("asignaciones_cobros", arr.toString()).apply()
+    }
+
+    private fun leerMapaIntStringPrefs(sp: android.content.SharedPreferences, key: String): Map<Int, String> {
+        val raw = sp.getString(key, null) ?: return emptyMap()
+        return try {
+            val obj = JSONObject(raw)
+            val map = mutableMapOf<Int, String>()
+            obj.keys().forEach { k ->
+                k.toIntOrNull()?.let { id -> map[id] = obj.getString(k) }
+            }
+            map
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun guardarMapaIntStringPrefs(sp: android.content.SharedPreferences, key: String, map: Map<Int, String>) {
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k.toString(), v) }
+        sp.edit().putString(key, obj.toString()).apply()
+    }
+
+    private fun leerTicketsPrefs(sp: android.content.SharedPreferences): List<TicketSoporte> {
+        val raw = sp.getString("tickets_soporte", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                TicketSoporte(
+                    id = obj.getString("id"),
+                    usuarioId = obj.getInt("usuarioId"),
+                    usuarioNombre = obj.getString("usuarioNombre"),
+                    usuarioRol = obj.getString("usuarioRol"),
+                    usuarioRut = obj.optString("usuarioRut", ""),
+                    empresaNombre = if (obj.isNull("empresaNombre")) null else obj.getString("empresaNombre"),
+                    categoria = obj.getString("categoria"),
+                    asunto = obj.getString("asunto"),
+                    mensaje = obj.getString("mensaje"),
+                    fechaCreacion = obj.getString("fechaCreacion"),
+                    estado = obj.getString("estado"),
+                    respuestaAdmin = if (obj.isNull("respuestaAdmin")) null else obj.getString("respuestaAdmin"),
+                    fechaRespuesta = if (obj.isNull("fechaRespuesta")) null else obj.getString("fechaRespuesta")
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun guardarTicketsPrefs(sp: android.content.SharedPreferences, lista: List<TicketSoporte>) {
+        val arr = JSONArray()
+        lista.forEach { t ->
+            arr.put(JSONObject().apply {
+                put("id", t.id)
+                put("usuarioId", t.usuarioId)
+                put("usuarioNombre", t.usuarioNombre)
+                put("usuarioRol", t.usuarioRol)
+                put("usuarioRut", t.usuarioRut)
+                put("empresaNombre", t.empresaNombre ?: JSONObject.NULL)
+                put("categoria", t.categoria)
+                put("asunto", t.asunto)
+                put("mensaje", t.mensaje)
+                put("fechaCreacion", t.fechaCreacion)
+                put("estado", t.estado)
+                put("respuestaAdmin", t.respuestaAdmin ?: JSONObject.NULL)
+                put("fechaRespuesta", t.fechaRespuesta ?: JSONObject.NULL)
+            })
+        }
+        sp.edit().putString("tickets_soporte", arr.toString()).apply()
     }
 }
