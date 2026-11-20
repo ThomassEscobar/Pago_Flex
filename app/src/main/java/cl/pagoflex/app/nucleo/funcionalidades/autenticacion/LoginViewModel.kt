@@ -16,9 +16,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 data class AuthUiState(
@@ -35,10 +35,10 @@ data class AuthUiState(
     val errorConfirmarContrasena: String? = null,
     val rolSeleccionado: String = "USUARIO",
 
-    // Datos de la empresa (cuando rolSeleccionado == "EJECUTIVO")
-    val nombreEmpresa: String = "",
-    val errorNombreEmpresa: String? = null,
-    val tipoEmpresa: String = "Empresa",
+    // Empresas asociadas (ordenadas alfabéticamente) y validación de Ejecutivo
+    val empresasDisponibles: List<OrganizacionEntity> = emptyList(),
+    val empresaSeleccionada: OrganizacionEntity? = null,
+    val errorEmpresaSeleccionada: String? = null,
     val rutEmpresa: String = "",
     val errorRutEmpresa: String? = null,
     val correoEmpresa: String = "",
@@ -60,8 +60,33 @@ class LoginViewModel @Inject constructor(
     private val organizacionDao: OrganizacionDao
 ) : ViewModel() {
 
+    companion object {
+        private val ROLES_REGISTRO_PUBLICO = setOf("USUARIO", "EJECUTIVO")
+    }
+
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    init {
+        observarEmpresasOrdenadas()
+    }
+
+    private fun observarEmpresasOrdenadas() {
+        viewModelScope.launch {
+            repository.observarOrganizaciones().collect { lista ->
+                val ordenadas = lista.sortedBy { it.nombre.lowercase(Locale.getDefault()) }
+                _uiState.update { estado ->
+                    val seleccionadaActualizada = estado.empresaSeleccionada?.let { sel ->
+                        ordenadas.find { it.id == sel.id }
+                    }
+                    estado.copy(
+                        empresasDisponibles = ordenadas,
+                        empresaSeleccionada = seleccionadaActualizada
+                    )
+                }
+            }
+        }
+    }
 
     fun onCorreoChange(valor: String) {
         val error = when {
@@ -106,43 +131,56 @@ class LoginViewModel @Inject constructor(
     }
 
     fun onRolChange(rol: String) {
+        val rolSeguro = if (rol in ROLES_REGISTRO_PUBLICO) rol else "USUARIO"
         _uiState.update {
             it.copy(
-                rolSeleccionado = rol,
-                errorNombreEmpresa = null,
+                rolSeleccionado = rolSeguro,
+                errorEmpresaSeleccionada = null,
                 errorRutEmpresa = null,
-                errorCorreoEmpresa = null
+                errorCorreoEmpresa = null,
+                mensajeGlobalError = null
             )
         }
     }
 
-    fun onNombreEmpresaChange(valor: String) {
-        val error = when {
-            valor.isBlank() -> "El nombre de la empresa es obligatorio"
-            valor.trim().length < 3 -> "Ingresa al menos 3 caracteres"
-            else -> null
+    fun onEmpresaSeleccionadaChange(empresa: OrganizacionEntity) {
+        _uiState.update {
+            it.copy(
+                empresaSeleccionada = empresa,
+                errorEmpresaSeleccionada = null,
+                mensajeGlobalError = null
+            )
         }
-        _uiState.update { it.copy(nombreEmpresa = valor, errorNombreEmpresa = error) }
-    }
-
-    fun onTipoEmpresaChange(tipo: String) {
-        _uiState.update { it.copy(tipoEmpresa = tipo) }
+        val estadoActual = _uiState.value
+        if (estadoActual.rutEmpresa.isNotBlank()) {
+            onRutEmpresaChange(estadoActual.rutEmpresa)
+        }
+        if (estadoActual.correoEmpresa.isNotBlank()) {
+            onCorreoEmpresaChange(estadoActual.correoEmpresa)
+        }
     }
 
     fun onRutEmpresaChange(valor: String) {
         val formateado = ValidadorRut.formatearRut(valor)
+        val empresa = _uiState.value.empresaSeleccionada
         val error = when {
             formateado.isBlank() -> "El RUT de la empresa es obligatorio"
-            !ValidadorRut.esRutValido(formateado) -> "RUT de empresa inválido (ej: 76.123.456-7)"
+            !ValidadorRut.esRutValido(formateado) -> "RUT de empresa inválido (ej: 76.123.456-0)"
+            empresa != null && !ValidadorRut.formatearRut(empresa.rut).equals(formateado, ignoreCase = true) ->
+                "El RUT no corresponde a ${empresa.nombre}"
             else -> null
         }
         _uiState.update { it.copy(rutEmpresa = formateado, errorRutEmpresa = error) }
     }
 
     fun onCorreoEmpresaChange(valor: String) {
+        val correoTrim = valor.trim()
+        val empresa = _uiState.value.empresaSeleccionada
         val error = when {
-            valor.isBlank() -> "El correo de contacto es obligatorio"
-            !Patterns.EMAIL_ADDRESS.matcher(valor.trim()).matches() -> "Formato de correo inválido"
+            correoTrim.isBlank() -> "El correo institucional es obligatorio"
+            !Patterns.EMAIL_ADDRESS.matcher(correoTrim).matches() -> "Formato de correo inválido"
+            empresa != null && !empresa.correoContacto.trim().equals(correoTrim, ignoreCase = true) ->
+                "El correo institucional no corresponde a ${empresa.nombre}"
             else -> null
         }
         _uiState.update { it.copy(correoEmpresa = valor, errorCorreoEmpresa = error) }
@@ -209,6 +247,17 @@ class LoginViewModel @Inject constructor(
 
     fun registrarCuenta() {
         val estado = _uiState.value
+
+        if (estado.rolSeleccionado !in ROLES_REGISTRO_PUBLICO) {
+            _uiState.update {
+                it.copy(
+                    rolSeleccionado = "USUARIO",
+                    mensajeGlobalError = "El rol seleccionado no está habilitado para registro público."
+                )
+            }
+            return
+        }
+
         onNombreChange(estado.nombre)
         onRutChange(estado.rut)
         onCorreoChange(estado.correo)
@@ -216,7 +265,9 @@ class LoginViewModel @Inject constructor(
         onConfirmarContrasenaChange(estado.confirmarContrasena)
 
         if (estado.rolSeleccionado == "EJECUTIVO") {
-            onNombreEmpresaChange(estado.nombreEmpresa)
+            if (estado.empresaSeleccionada == null) {
+                _uiState.update { it.copy(errorEmpresaSeleccionada = "Selecciona la empresa a la que perteneces") }
+            }
             onRutEmpresaChange(estado.rutEmpresa)
             onCorreoEmpresaChange(estado.correoEmpresa)
         }
@@ -229,45 +280,42 @@ class LoginViewModel @Inject constructor(
             act.errorConfirmarContrasena != null
         ) return
 
-        if (act.rolSeleccionado == "EJECUTIVO" &&
-            (act.errorNombreEmpresa != null || act.errorRutEmpresa != null || act.errorCorreoEmpresa != null)
-        ) return
+        val rolFinal = if (act.rolSeleccionado == "EJECUTIVO") "EJECUTIVO" else "USUARIO"
+
+        val empresaIdFinal: Int? = if (rolFinal == "EJECUTIVO") {
+            val empresa = act.empresaSeleccionada ?: return
+            if (act.errorEmpresaSeleccionada != null ||
+                act.errorRutEmpresa != null ||
+                act.errorCorreoEmpresa != null
+            ) return
+
+            val rutCoincide = ValidadorRut.formatearRut(empresa.rut)
+                .equals(ValidadorRut.formatearRut(act.rutEmpresa), ignoreCase = true)
+            val correoCoincide = empresa.correoContacto.trim()
+                .equals(act.correoEmpresa.trim(), ignoreCase = true)
+
+            if (!rutCoincide || !correoCoincide) {
+                _uiState.update {
+                    it.copy(
+                        errorRutEmpresa = if (!rutCoincide) "El RUT no corresponde a ${empresa.nombre}" else null,
+                        errorCorreoEmpresa = if (!correoCoincide) "El correo institucional no corresponde a ${empresa.nombre}" else null
+                    )
+                }
+                return
+            }
+            empresa.id
+        } else {
+            null
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true, mensajeGlobalError = null) }
-
-            val empresaIdFinal: Int? = if (act.rolSeleccionado == "EJECUTIVO") {
-                val rutEmpresaFormateado = ValidadorRut.formatearRut(act.rutEmpresa)
-                val orgsExistentes = repository.observarOrganizaciones().first()
-                val yaRegistrada = orgsExistentes.find {
-                    it.rut.equals(rutEmpresaFormateado, ignoreCase = true)
-                }
-
-                if (yaRegistrada != null) {
-                    yaRegistrada.id
-                } else {
-                    organizacionDao.insertar(
-                        OrganizacionEntity(
-                            nombre = act.nombreEmpresa.trim(),
-                            tipo = act.tipoEmpresa,
-                            rut = rutEmpresaFormateado,
-                            correoContacto = act.correoEmpresa.trim()
-                        )
-                    )
-                    val orgsActualizadas = repository.observarOrganizaciones().first()
-                    orgsActualizadas.find {
-                        it.rut.equals(rutEmpresaFormateado, ignoreCase = true)
-                    }?.id ?: orgsActualizadas.maxByOrNull { it.id }?.id
-                }
-            } else {
-                null
-            }
 
             val nuevoUsuario = UsuarioEntity(
                 nombre = act.nombre.trim(),
                 correo = act.correo.trim(),
                 clave = act.contrasena,
-                rol = act.rolSeleccionado,
+                rol = rolFinal,
                 rut = ValidadorRut.formatearRut(act.rut),
                 empresaId = empresaIdFinal
             )

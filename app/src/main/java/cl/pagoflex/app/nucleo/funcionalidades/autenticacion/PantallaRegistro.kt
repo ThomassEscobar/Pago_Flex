@@ -1,7 +1,6 @@
 package cl.pagoflex.app.nucleo.funcionalidades.autenticacion
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,11 +73,11 @@ fun PantallaRegistro(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val roles = listOf("USUARIO", "EJECUTIVO", "ADMIN")
-    val tiposEntidad = listOf("Empresa", "Edificio", "Jardín", "Club")
+    val roles = listOf("USUARIO", "EJECUTIVO")
 
     var verContrasena by remember { mutableStateOf(false) }
     var verConfirmarContrasena by remember { mutableStateOf(false) }
+    var menuEmpresasExpandido by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.registroExitoso) {
         if (uiState.registroExitoso) {
@@ -168,7 +167,7 @@ fun PantallaRegistro(
                     FilterChip(
                         selected = uiState.rolSeleccionado == rol,
                         onClick = { viewModel.onRolChange(rol) },
-                        label = { Text(rol) }
+                        label = { Text(if (rol == "USUARIO") "Cliente (USUARIO)" else "Ejecutivo") }
                     )
                 }
             }
@@ -186,44 +185,94 @@ fun PantallaRegistro(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "Datos de la Empresa que representas",
+                            text = "Validación de Empresa Asociada",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        OutlinedTextField(
-                            value = uiState.nombreEmpresa,
-                            onValueChange = { viewModel.onNombreEmpresaChange(it) },
-                            label = { Text("Nombre de la empresa o entidad") },
-                            leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
-                            isError = uiState.errorNombreEmpresa != null,
-                            supportingText = {
-                                uiState.errorNombreEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                        Text(
+                            text = "Selecciona tu empresa y verifica su RUT y correo institucional registrados.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Text("Tipo de entidad:", style = MaterialTheme.typography.labelMedium)
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ExposedDropdownMenuBox(
+                            expanded = menuEmpresasExpandido,
+                            onExpandedChange = { menuEmpresasExpandido = !menuEmpresasExpandido }
                         ) {
-                            tiposEntidad.forEach { tipo ->
-                                FilterChip(
-                                    selected = uiState.tipoEmpresa == tipo,
-                                    onClick = { viewModel.onTipoEmpresaChange(tipo) },
-                                    label = { Text(tipo) }
-                                )
+                            val textoSeleccionado = uiState.empresaSeleccionada?.let {
+                                "${it.nombre} (${it.tipo})"
+                            } ?: ""
+
+                            OutlinedTextField(
+                                value = textoSeleccionado,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Empresa asociada (A - Z)") },
+                                placeholder = { Text("Selecciona una empresa") },
+                                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuEmpresasExpandido)
+                                },
+                                isError = uiState.errorEmpresaSeleccionada != null,
+                                supportingText = {
+                                    uiState.errorEmpresaSeleccionada?.let {
+                                        Text(it, color = MaterialTheme.colorScheme.error)
+                                    }
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth()
+                            )
+
+                            ExposedDropdownMenu(
+                                expanded = menuEmpresasExpandido,
+                                onDismissRequest = { menuEmpresasExpandido = false }
+                            ) {
+                                if (uiState.empresasDisponibles.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("No hay empresas asociadas disponibles") },
+                                        onClick = { menuEmpresasExpandido = false },
+                                        enabled = false
+                                    )
+                                } else {
+                                    uiState.empresasDisponibles.forEach { empresa ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(
+                                                        text = empresa.nombre,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = empresa.tipo,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                viewModel.onEmpresaSeleccionadaChange(empresa)
+                                                menuEmpresasExpandido = false
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
 
                         OutlinedTextField(
                             value = uiState.rutEmpresa,
                             onValueChange = { viewModel.onRutEmpresaChange(it) },
-                            label = { Text("RUT Empresa (ej: 76.123.456-7)") },
+                            label = { Text("RUT Empresa (ej: 76.123.456-0)") },
                             leadingIcon = { Icon(Icons.Default.AccountBox, contentDescription = null) },
+                            trailingIcon = {
+                                if (uiState.errorRutEmpresa != null) {
+                                    Icon(Icons.Default.Warning, contentDescription = "Error", tint = MaterialTheme.colorScheme.error)
+                                }
+                            },
                             isError = uiState.errorRutEmpresa != null,
                             supportingText = {
                                 uiState.errorRutEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -237,6 +286,11 @@ fun PantallaRegistro(
                             onValueChange = { viewModel.onCorreoEmpresaChange(it) },
                             label = { Text("Correo institucional de la empresa") },
                             leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            trailingIcon = {
+                                if (uiState.errorCorreoEmpresa != null) {
+                                    Icon(Icons.Default.Warning, contentDescription = "Error", tint = MaterialTheme.colorScheme.error)
+                                }
+                            },
                             isError = uiState.errorCorreoEmpresa != null,
                             supportingText = {
                                 uiState.errorCorreoEmpresa?.let { Text(it, color = MaterialTheme.colorScheme.error) }
