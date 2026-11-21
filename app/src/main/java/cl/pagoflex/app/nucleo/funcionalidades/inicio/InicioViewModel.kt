@@ -6,8 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Patterns
 import androidx.core.content.FileProvider
+import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cl.pagoflex.app.nucleo.local.dao.CompromisoDao
@@ -289,6 +289,10 @@ class InicioViewModel @Inject constructor(
         val usuarios: List<UsuarioEntity> = usuarioDao.observarTodos().first()
         val orgs: List<OrganizacionEntity> = organizacionDao.observarTodas().first()
         val comps: List<CompromisoEntity> = compromisoDao.observarTodos().first()
+            .sortedWith(
+                compareBy<CompromisoEntity> { parseFecha(it.fechaVencimiento) ?: LocalDate.MAX }
+                    .thenBy { it.id }
+            )
 
         val sp = prefs(context)
         val solicitudes = leerSolicitudesPrefs(sp)
@@ -812,7 +816,7 @@ class InicioViewModel @Inject constructor(
             _uiState.update { it.copy(errorNuevaEmpresaRut = "Ya existe una empresa registrada con ese RUT") }
             hayError = true
         }
-        if (correo.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correo).matches()) {
+        if (correo.isBlank() || !PatternsCompat.EMAIL_ADDRESS.matcher(correo).matches()) {
             _uiState.update { it.copy(errorNuevaEmpresaCorreo = "Ingresa un correo institucional válido") }
             hayError = true
         }
@@ -940,7 +944,7 @@ class InicioViewModel @Inject constructor(
             _uiState.update { it.copy(errorNuevoClienteRut = "RUT inválido (ej: 12.345.678-9)") }
             hayError = true
         }
-        if (correo.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correo).matches()) {
+        if (correo.isBlank() || !PatternsCompat.EMAIL_ADDRESS.matcher(correo).matches()) {
             _uiState.update { it.copy(errorNuevoClienteCorreo = "Ingresa un correo electrónico válido") }
             hayError = true
         }

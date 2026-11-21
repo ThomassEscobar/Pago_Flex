@@ -1,7 +1,7 @@
 package cl.pagoflex.app.nucleo.funcionalidades.autenticacion
 
 import android.content.Context
-import android.util.Patterns
+import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cl.pagoflex.app.nucleo.dto.LoginRequestDto
@@ -91,7 +91,7 @@ class LoginViewModel @Inject constructor(
     fun onCorreoChange(valor: String) {
         val error = when {
             valor.isBlank() -> "El correo es obligatorio"
-            !Patterns.EMAIL_ADDRESS.matcher(valor.trim()).matches() -> "Formato de correo inválido (ej: usuario@dominio.cl)"
+            !PatternsCompat.EMAIL_ADDRESS.matcher(valor.trim()).matches() -> "Formato de correo inválido (ej: usuario@dominio.cl)"
             else -> null
         }
         _uiState.update { it.copy(correo = valor, errorCorreo = error, mensajeGlobalError = null) }
@@ -178,7 +178,7 @@ class LoginViewModel @Inject constructor(
         val empresa = _uiState.value.empresaSeleccionada
         val error = when {
             correoTrim.isBlank() -> "El correo institucional es obligatorio"
-            !Patterns.EMAIL_ADDRESS.matcher(correoTrim).matches() -> "Formato de correo inválido"
+            !PatternsCompat.EMAIL_ADDRESS.matcher(correoTrim).matches() -> "Formato de correo inválido"
             empresa != null && !empresa.correoContacto.trim().equals(correoTrim, ignoreCase = true) ->
                 "El correo institucional no corresponde a ${empresa.nombre}"
             else -> null
