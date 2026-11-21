@@ -142,8 +142,6 @@ fun PantallaInicio(
     val snackbarHostState = remember { SnackbarHostState() }
     var tabSeleccionado by remember { mutableIntStateOf(0) }
 
-    var compromisoParaFotoId by remember { mutableStateOf<Int?>(null) }
-    var compromisoParaArchivoId by remember { mutableStateOf<Int?>(null) }
     var fotoTemporalUri by remember { mutableStateOf<Uri?>(null) }
 
     val userActual = uiState.usuarioActual
@@ -202,9 +200,9 @@ fun PantallaInicio(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { exito ->
-        val id = compromisoParaFotoId
-        if (exito && id != null) {
-            viewModel.registrarComprobante(context, id, fotoTemporalUri?.toString())
+        if (exito) {
+            viewModel.seleccionarComprobanteBorrador(fotoTemporalUri?.toString())
+            viewModel.mostrarMensaje("Foto del comprobante adjuntada. Presiona 'Confirmar Pago' para enviar.")
         } else {
             viewModel.mostrarMensaje("Captura de foto cancelada")
         }
@@ -213,8 +211,7 @@ fun PantallaInicio(
     val selectorArchivoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        val id = compromisoParaArchivoId
-        if (uri != null && id != null) {
+        if (uri != null) {
             try {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
@@ -222,7 +219,8 @@ fun PantallaInicio(
                 )
             } catch (_: Exception) {
             }
-            viewModel.registrarComprobante(context, id, uri.toString())
+            viewModel.seleccionarComprobanteBorrador(uri.toString())
+            viewModel.mostrarMensaje("Archivo adjuntado. Presiona 'Confirmar Pago' para enviar.")
         } else {
             viewModel.mostrarMensaje("Selección de archivo cancelada")
         }
@@ -241,7 +239,7 @@ fun PantallaInicio(
             fotoTemporalUri = uri
             cameraLauncher.launch(uri)
         } else {
-            viewModel.mostrarMensaje("Permiso de cámara denegado. Usa 'Galería / PDF' para elegir desde galería.")
+            viewModel.mostrarMensaje("Permiso de cámara denegado. Usa 'Galería / PDF' para elegir desde archivos.")
         }
     }
 
@@ -284,7 +282,7 @@ fun PantallaInicio(
                             val subtituloTop = when (user.rol) {
                                 "EJECUTIVO" -> "${user.nombre} • Ejecutivo ${miEmpresaEjecutivo?.nombre ?: "(Sin empresa)"}"
                                 "ADMIN" -> "${user.nombre} • Admin Plataforma"
-                                else -> "${user.nombre} (${user.rol})"
+                                else -> "${user.nombre} (Cliente)"
                             }
                             Text(
                                 text = subtituloTop,
@@ -379,7 +377,7 @@ fun PantallaInicio(
         floatingActionButton = {
             if (tabSeleccionado == 0 && esEjecutivo && miEmpresaEjecutivo != null && empresaEjecutivoSuspendida == null) {
                 FloatingActionButton(onClick = { viewModel.abrirDialogoNuevoCompromiso() }) {
-                    Icon(Icons.Default.Add, contentDescription = "Emitir Cobro")
+                    Icon(Icons.Default.Add, contentDescription = "Registrar Cobro")
                 }
             } else if (tabSeleccionado == 1 && !esAdmin && !esEjecutivo) {
                 FloatingActionButton(onClick = { viewModel.abrirDialogoVincularEmpresaUsuario() }) {
@@ -433,29 +431,7 @@ fun PantallaInicio(
                         motivoSuspensionEmpresa = empresaEjecutivoSuspendida,
                         onFiltroChange = { viewModel.onFiltroEstadoChange(it) },
                         onBusquedaChange = { viewModel.onBusquedaChange(it) },
-                        onTomarFotoComprobante = { compId ->
-                            compromisoParaFotoId = compId
-                            val tienePermiso = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CAMERA
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (tienePermiso) {
-                                val archivoFoto = File(context.cacheDir, "comprobante_${System.currentTimeMillis()}.jpg")
-                                val uri = FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.fileprovider",
-                                    archivoFoto
-                                )
-                                fotoTemporalUri = uri
-                                cameraLauncher.launch(uri)
-                            } else {
-                                permisoCamaraLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        onAdjuntarDigital = { compId ->
-                            compromisoParaArchivoId = compId
-                            selectorArchivoLauncher.launch(arrayOf("image/*", "application/pdf"))
-                        },
+                        onAbrirDetalle = { viewModel.abrirDetalleCompromiso(it) },
                         onVerComprobante = abrirComprobante,
                         onResolverComprobante = { compId, aprobado ->
                             viewModel.resolverComprobante(context, compId, aprobado)
@@ -468,15 +444,12 @@ fun PantallaInicio(
                             motivoSuspensionEmpresa = empresaEjecutivoSuspendida,
                             calcularStrikes = { viewModel.calcularStrikesCliente(it).first },
                             onBusquedaChange = { viewModel.onBusquedaClientesEmpresaChange(it) },
+                            onAbrirAgregarCliente = { viewModel.abrirDialogoAgregarClienteEjecutivo() },
                             onRevisarSolicitud = { viewModel.abrirRevisionPerfilCliente(it) }
                         )
                         else -> VistaEmpresasUsuario(
                             uiState = uiState,
-                            onCancelarODesvincular = { orgId ->
-                                userActual?.let { user ->
-                                    viewModel.cancelarODesvincularEmpresaUsuario(context, user.id, orgId)
-                                }
-                            },
+                            onAbrirRegistrarEmpresa = { viewModel.abrirDialogoRegistrarEmpresaUsuario() },
                             onReintentarSolicitud = { orgId ->
                                 userActual?.let { user ->
                                     viewModel.solicitarVinculacionEmpresa(context, user.id, orgId)
@@ -505,6 +478,43 @@ fun PantallaInicio(
         // DIÁLOGOS MODALES
         // ---------------------------------------------------------
 
+        val compromisoDetalle = uiState.compromisoDetalleSeleccionado
+        if (compromisoDetalle != null) {
+            DialogoDetalleCompromiso(
+                compromiso = compromisoDetalle,
+                clienteNombre = uiState.asignacionesCobros[compromisoDetalle.id]?.usuarioNombre,
+                esEjecutivo = esEjecutivo,
+                comprobanteBorradorUri = uiState.comprobanteBorradorUri,
+                onTomarFoto = {
+                    val tienePermiso = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (tienePermiso) {
+                        val archivoFoto = File(context.cacheDir, "comprobante_${System.currentTimeMillis()}.jpg")
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            archivoFoto
+                        )
+                        fotoTemporalUri = uri
+                        cameraLauncher.launch(uri)
+                    } else {
+                        permisoCamaraLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                },
+                onAdjuntarDigital = {
+                    selectorArchivoLauncher.launch(arrayOf("image/*", "application/pdf"))
+                },
+                onVerComprobante = abrirComprobante,
+                onConfirmarPago = { viewModel.confirmarPagoConComprobante(context) },
+                onResolverComprobante = { aprobado ->
+                    viewModel.resolverComprobante(context, compromisoDetalle.id, aprobado)
+                },
+                onDismiss = { viewModel.cerrarDetalleCompromiso() }
+            )
+        }
+
         if (uiState.mostrarDialogoCompromiso && esEjecutivo) {
             DialogoCompromiso(
                 uiState = uiState,
@@ -513,7 +523,32 @@ fun PantallaInicio(
                 onConceptoChange = { viewModel.onConceptoChange(it) },
                 onMontoChange = { viewModel.onMontoChange(it) },
                 onFechaChange = { viewModel.onFechaChange(it) },
+                onToggleRecurrente = { viewModel.onToggleCobroRecurrenteChange(it) },
+                onMesesRecurrenciaChange = { viewModel.onMesesRecurrenciaChange(it) },
                 onGuardar = { viewModel.guardarCompromiso(context) }
+            )
+        }
+
+        if (uiState.mostrarDialogoRegistrarEmpresaUsuario && !esAdmin && !esEjecutivo) {
+            DialogoRegistrarEmpresaUsuario(
+                uiState = uiState,
+                onNombreChange = { viewModel.onNuevaEmpresaNombreChange(it) },
+                onTipoChange = { viewModel.onNuevaEmpresaTipoChange(it) },
+                onRutChange = { viewModel.onNuevaEmpresaRutChange(it) },
+                onCorreoChange = { viewModel.onNuevaEmpresaCorreoChange(it) },
+                onGuardar = { viewModel.registrarNuevaEmpresaUsuario(context) },
+                onDismiss = { viewModel.cerrarDialogoRegistrarEmpresaUsuario() }
+            )
+        }
+
+        if (uiState.mostrarDialogoAgregarClienteEjecutivo && esEjecutivo) {
+            DialogoAgregarClienteEjecutivo(
+                uiState = uiState,
+                onNombreChange = { viewModel.onNuevoClienteNombreChange(it) },
+                onRutChange = { viewModel.onNuevoClienteRutChange(it) },
+                onCorreoChange = { viewModel.onNuevoClienteCorreoChange(it) },
+                onGuardar = { viewModel.agregarClienteAEmpresaEjecutivo(context) },
+                onDismiss = { viewModel.cerrarDialogoAgregarClienteEjecutivo() }
             )
         }
 
@@ -620,14 +655,10 @@ fun PantallaInicio(
             DialogoSeguridadCuenta(
                 uiState = uiState,
                 onDismiss = { viewModel.cerrarDialogoSeguridad() },
-                onCorreoPrincipalChange = { viewModel.onCorreoPrincipalInputChange(it) },
-                onCorreoRespaldoChange = { viewModel.onCorreoRespaldoInputChange(it) },
-                onEliminarCorreoRespaldo = { viewModel.eliminarCorreoRespaldo(context) },
-                onToggleCambioClave = { viewModel.onToggleExpandirCambioClave(it) },
                 onClaveActualChange = { viewModel.onClaveActualPerfilChange(it) },
                 onNuevaClaveChange = { viewModel.onNuevaClavePerfilChange(it) },
                 onConfirmarClaveChange = { viewModel.onConfirmarClavePerfilChange(it) },
-                onGuardar = { viewModel.guardarSeguridadCuenta(context) }
+                onGuardar = { viewModel.actualizarContrasenaSegura() }
             )
         }
     }
@@ -1130,7 +1161,7 @@ private fun VistaAdminPlataforma(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Supervisa las entidades inscritas por sus ejecutivos y suspende su operación si es necesario",
+                    text = "Supervisa las entidades inscritas y suspende su operación si es necesario",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1488,8 +1519,7 @@ private fun VistaCompromisos(
     motivoSuspensionEmpresa: String?,
     onFiltroChange: (String) -> Unit,
     onBusquedaChange: (String) -> Unit,
-    onTomarFotoComprobante: (Int) -> Unit,
-    onAdjuntarDigital: (Int) -> Unit,
+    onAbrirDetalle: (CompromisoEntity) -> Unit,
     onVerComprobante: (String) -> Unit,
     onResolverComprobante: (Int, Boolean) -> Unit
 ) {
@@ -1560,10 +1590,26 @@ private fun VistaCompromisos(
     }
 
     val tituloTarjetaIzquierda = if (esEjecutivo) "Por Validar" else "Por Pagar"
-    val montoTarjetaIzquierda = if (esEjecutivo) {
-        compromisosVisiblesPorRol.filter { it.estado == "REVISION" }.sumOf { it.monto }
-    } else {
-        compromisosVisiblesPorRol.filter { it.estado == "PENDIENTE" || it.estado == "RECHAZADO" }.sumOf { it.monto }
+    val montoTarjetaIzquierda = remember(compromisosVisiblesPorRol, esEjecutivo) {
+        if (esEjecutivo) {
+            compromisosVisiblesPorRol.filter { it.estado == "REVISION" }.sumOf { it.monto }
+        } else {
+            compromisosVisiblesPorRol
+                .filter { InicioViewModel.esCompromisoExigibleAhora(it) }
+                .sumOf { it.monto }
+        }
+    }
+    val montoFuturoRecurrente = remember(compromisosVisiblesPorRol, esEjecutivo) {
+        if (esEjecutivo) {
+            0.0
+        } else {
+            compromisosVisiblesPorRol
+                .filter {
+                    (it.estado == "PENDIENTE" || it.estado == "RECHAZADO") &&
+                            !InicioViewModel.esCompromisoExigibleAhora(it)
+                }
+                .sumOf { it.monto }
+        }
     }
 
     val tituloTarjetaDerecha = if (esEjecutivo) "Conciliado" else "Pagado"
@@ -1603,7 +1649,7 @@ private fun VistaCompromisos(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
             ) {
                 Text(
-                    text = "Tu empresa está suspendida por Administración: $motivoSuspensionEmpresa. No puedes emitir nuevos cobros.",
+                    text = "Tu empresa está suspendida por Administración: $motivoSuspensionEmpresa. No puedes registrar nuevos cobros.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(12.dp)
@@ -1691,6 +1737,13 @@ private fun VistaCompromisos(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    if (!esEjecutivo && montoFuturoRecurrente > 0.0) {
+                        Text(
+                            text = "Futuro programado: ${formatoClp.format(montoFuturoRecurrente)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
             Card(
@@ -1776,8 +1829,7 @@ private fun VistaCompromisos(
                         clienteAsignado = clienteMostrar,
                         formatoClp = formatoClp,
                         esEjecutivo = esEjecutivo,
-                        onTomarFoto = { onTomarFotoComprobante(compromiso.id) },
-                        onAdjuntarDigital = { onAdjuntarDigital(compromiso.id) },
+                        onAbrirDetalle = { onAbrirDetalle(compromiso) },
                         onVerComprobante = onVerComprobante,
                         onResolverComprobante = { onResolverComprobante(compromiso.id, it) }
                     )
@@ -1793,8 +1845,7 @@ private fun TarjetaCompromisoItem(
     clienteAsignado: String?,
     formatoClp: NumberFormat,
     esEjecutivo: Boolean,
-    onTomarFoto: () -> Unit,
-    onAdjuntarDigital: () -> Unit,
+    onAbrirDetalle: () -> Unit,
     onVerComprobante: (String) -> Unit,
     onResolverComprobante: (Boolean) -> Unit
 ) {
@@ -1804,6 +1855,8 @@ private fun TarjetaCompromisoItem(
     val estaVencidoImpago = compromiso.estado != "PAGADO" && diasParaVencer != null && diasParaVencer < 0
     val estaPorVencer = (compromiso.estado == "PENDIENTE" || compromiso.estado == "RECHAZADO") &&
             diasParaVencer != null && diasParaVencer in 0..3
+    val esCuotaFuturaRecurrente = (compromiso.estado == "PENDIENTE" || compromiso.estado == "RECHAZADO") &&
+            !InicioViewModel.esCompromisoExigibleAhora(compromiso)
 
     val colorEstado = when {
         compromiso.estado == "PAGADO" -> Color(0xFF16A34A)
@@ -1816,7 +1869,9 @@ private fun TarjetaCompromisoItem(
             compromiso.comprobanteUri.startsWith("content://")
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onAbrirDetalle() },
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -1836,19 +1891,17 @@ private fun TarjetaCompromisoItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (esEjecutivo) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Compromiso emitido inmutable",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
                     Text(
                         text = if (estaVencidoImpago && compromiso.estado == "PENDIENTE") "VENCIDO" else compromiso.estado,
                         style = MaterialTheme.typography.labelMedium,
                         color = colorEstado,
                         fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Ver detalle expandido",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1912,6 +1965,19 @@ private fun TarjetaCompromisoItem(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
+                } else if (esCuotaFuturaRecurrente) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = "Cuota futura programada",
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
@@ -1920,26 +1986,20 @@ private fun TarjetaCompromisoItem(
             when (compromiso.estado) {
                 "PENDIENTE" -> {
                     if (!esEjecutivo) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onTomarFoto,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Foto Comprobante")
-                            }
-                            OutlinedButton(
-                                onClick = onAdjuntarDigital,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Galería / PDF")
-                            }
+                        Button(
+                            onClick = onAbrirDetalle,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Pagar Compromiso", fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Text(
                             text = if (estaVencidoImpago) {
-                                "Plazo expirado sin pago • Strike activo registrado en historial del cliente"
+                                "Plazo expirado sin pago • Toca para ver detalle"
                             } else {
-                                "Sin comprobante adjunto — Pendiente de pago del cliente"
+                                "Pendiente de pago del cliente • Toca para ver detalle"
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = if (estaVencidoImpago) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1959,12 +2019,6 @@ private fun TarjetaCompromisoItem(
                     }
 
                     if (esEjecutivo) {
-                        Text(
-                            text = "Comprobante listo para validación de tu empresa:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onResolverComprobante(true) },
@@ -1991,7 +2045,7 @@ private fun TarjetaCompromisoItem(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Comprobante enviado — En espera de validación por un Ejecutivo",
+                                text = "Comprobante en revisión • Toca para ver detalle",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -2005,16 +2059,9 @@ private fun TarjetaCompromisoItem(
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                             Text(
-                                text = "Comprobante rechazado",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Motivo: ${InicioViewModel.MOTIVO_RECHAZO_GENERAL}",
+                                text = "Comprobante rechazado: ${InicioViewModel.MOTIVO_RECHAZO_GENERAL}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -2022,25 +2069,18 @@ private fun TarjetaCompromisoItem(
                     }
                     if (!esEjecutivo) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onTomarFoto,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Reintentar Foto")
-                            }
-                            OutlinedButton(
-                                onClick = onAdjuntarDigital,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Galería / PDF")
-                            }
+                        Button(
+                            onClick = onAbrirDetalle,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Reintentar Pago", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 "PAGADO" -> {
                     Text(
-                        text = "Pago verificado y conciliado",
+                        text = "Pago verificado y conciliado • Toca para ver detalle",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF16A34A)
                     )
@@ -2051,9 +2091,224 @@ private fun TarjetaCompromisoItem(
 }
 
 @Composable
+private fun DialogoDetalleCompromiso(
+    compromiso: CompromisoEntity,
+    clienteNombre: String?,
+    esEjecutivo: Boolean,
+    comprobanteBorradorUri: String?,
+    onTomarFoto: () -> Unit,
+    onAdjuntarDigital: () -> Unit,
+    onVerComprobante: (String) -> Unit,
+    onConfirmarPago: () -> Unit,
+    onResolverComprobante: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val formatoClp = remember { NumberFormat.getCurrencyInstance(Locale("es", "CL")) }
+    val diasParaVencer = remember(compromiso.fechaVencimiento) {
+        InicioViewModel.calcularDiasParaVencimiento(compromiso.fechaVencimiento)
+    }
+    val estaVencido = compromiso.estado != "PAGADO" && diasParaVencer != null && diasParaVencer < 0
+    val puedePagar = !esEjecutivo && (compromiso.estado == "PENDIENTE" || compromiso.estado == "RECHAZADO")
+    val tieneBorrador = !comprobanteBorradorUri.isNullOrBlank()
+    val tieneAdjuntoGuardado = !compromiso.comprobanteUri.isNullOrBlank() &&
+            compromiso.comprobanteUri.startsWith("content://")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "Detalle del Compromiso",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = compromiso.empresaNombre,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("Monto a pagar", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = formatoClp.format(compromiso.monto),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Concepto: ${compromiso.concepto}", fontWeight = FontWeight.SemiBold)
+                        if (!clienteNombre.isNullOrBlank()) {
+                            Text("Titular / Cliente: $clienteNombre", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            text = "Fecha de vencimiento: ${compromiso.fechaVencimiento}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (estaVencido) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Estado actual: ${if (estaVencido && compromiso.estado == "PENDIENTE") "VENCIDO" else compromiso.estado}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (compromiso.concepto.contains("Recurrente", ignoreCase = true)) {
+                            Text(
+                                text = "Modalidad: Cobro mensual recurrente (programado automáticamente)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                if (compromiso.estado == "RECHAZADO") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Motivo de rechazo anterior: ${InicioViewModel.MOTIVO_RECHAZO_GENERAL}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                if (puedePagar) {
+                    HorizontalDivider()
+                    Text(
+                        text = "Adjuntar Comprobante de Pago",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Sube una foto o archivo PDF de tu transferencia o recibo para completar el pago:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onTomarFoto,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Tomar Foto")
+                        }
+                        OutlinedButton(
+                            onClick = onAdjuntarDigital,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Galería / PDF")
+                        }
+                    }
+
+                    if (tieneBorrador) {
+                        Surface(
+                            color = Color(0xFF16A34A).copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Comprobante adjuntado",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color(0xFF16A34A),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (comprobanteBorradorUri!!.startsWith("content://")) {
+                                    TextButton(
+                                        onClick = { onVerComprobante(comprobanteBorradorUri) },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("Vista previa")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onConfirmarPago,
+                        enabled = tieneBorrador,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Confirmar Pago y Enviar", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    if (tieneAdjuntoGuardado) {
+                        OutlinedButton(
+                            onClick = { onVerComprobante(compromiso.comprobanteUri!!) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Ver Comprobante Adjunto")
+                        }
+                    }
+
+                    if (esEjecutivo && compromiso.estado == "REVISION") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { onResolverComprobante(true) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Aprobar Pago")
+                            }
+                            OutlinedButton(
+                                onClick = { onResolverComprobante(false) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Rechazar", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar") }
+        }
+    )
+}
+
+@Composable
 private fun VistaEmpresasUsuario(
     uiState: InicioUiState,
-    onCancelarODesvincular: (Int) -> Unit,
+    onAbrirRegistrarEmpresa: () -> Unit,
     onReintentarSolicitud: (Int) -> Unit
 ) {
     val userActual = uiState.usuarioActual ?: return
@@ -2069,17 +2324,25 @@ private fun VistaEmpresasUsuario(
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {
         item {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "Mis Empresas y Solicitudes (${solicitudesUsuario.size})",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Solicita vinculación a entidades emisoras. Un ejecutivo evaluará tu perfil antes de aprobarla.",
+                    text = "Registra una nueva empresa o solicita vinculación a entidades existentes en PagoFlex.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Button(
+                    onClick = onAbrirRegistrarEmpresa,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Registrar Nueva Empresa")
+                }
             }
         }
 
@@ -2090,7 +2353,7 @@ private fun VistaEmpresasUsuario(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Text(
-                        text = "Aún no tienes empresas vinculadas ni solicitudes enviadas. Presiona el botón '+' para solicitar afiliación.",
+                        text = "Aún no tienes empresas asociadas. Registra una nueva empresa o presiona '+' para solicitar vinculación a una entidad existente.",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp)
                     )
@@ -2148,57 +2411,23 @@ private fun VistaEmpresasUsuario(
 
                     when (solicitud.estado) {
                         EstadoVinculo.APROBADA -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (compromisosSinPagar > 0) {
-                                    Text(
-                                        text = "Bloqueado: $compromisosSinPagar compromiso(s) sin pagar",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFFD97706),
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    OutlinedButton(
-                                        onClick = { onCancelarODesvincular(org.id) },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Con deuda", style = MaterialTheme.typography.labelMedium)
-                                    }
+                            Text(
+                                text = if (compromisosSinPagar > 0) {
+                                    "Vinculación activa • $compromisosSinPagar compromiso(s) pendiente(s)"
                                 } else {
-                                    Text(
-                                        text = "Al día • Sin compromisos pendientes",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF16A34A),
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    TextButton(onClick = { onCancelarODesvincular(org.id) }) {
-                                        Text("Desvincular", color = MaterialTheme.colorScheme.error)
-                                    }
-                                }
-                            }
+                                    "Vinculación activa • Al día sin compromisos pendientes"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (compromisosSinPagar > 0) Color(0xFFD97706) else Color(0xFF16A34A),
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         EstadoVinculo.PENDIENTE -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Enviada el ${solicitud.fechaSolicitud} • Esperando aprobación",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                TextButton(onClick = { onCancelarODesvincular(org.id) }) {
-                                    Text("Cancelar", color = MaterialTheme.colorScheme.error)
-                                }
-                            }
+                            Text(
+                                text = "Solicitud enviada el ${solicitud.fechaSolicitud} • En espera de aprobación del Ejecutivo",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         EstadoVinculo.RECHAZADA -> {
                             Surface(
@@ -2218,10 +2447,6 @@ private fun VistaEmpresasUsuario(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End
                             ) {
-                                TextButton(onClick = { onCancelarODesvincular(org.id) }) {
-                                    Text("Descartar")
-                                }
-                                Spacer(Modifier.width(8.dp))
                                 Button(onClick = { onReintentarSolicitud(org.id) }) {
                                     Text("Volver a solicitar")
                                 }
@@ -2262,6 +2487,7 @@ private fun VistaEmpresaEjecutivo(
     motivoSuspensionEmpresa: String?,
     calcularStrikes: (Int) -> Int,
     onBusquedaChange: (String) -> Unit,
+    onAbrirAgregarCliente: () -> Unit,
     onRevisarSolicitud: (SolicitudVinculacion) -> Unit
 ) {
     if (miEmpresa == null) {
@@ -2285,7 +2511,12 @@ private fun VistaEmpresaEjecutivo(
         return
     }
 
+    val formatoClp = remember { NumberFormat.getCurrencyInstance(Locale("es", "CL")) }
     val queryNorm = normalizarTextoBusqueda(uiState.busquedaClientesEmpresa)
+
+    val plantillasEmpresa = remember(uiState.plantillasRecurrentes, miEmpresa) {
+        uiState.plantillasRecurrentes.filter { it.organizacionId == miEmpresa.id }
+    }
 
     val solicitudesPendientes = remember(uiState.solicitudesVinculacion, uiState.clientesDisponibles, miEmpresa, queryNorm) {
         uiState.solicitudesVinculacion.filter { sol ->
@@ -2360,6 +2591,48 @@ private fun VistaEmpresaEjecutivo(
                             color = MaterialTheme.colorScheme.error,
                             fontWeight = FontWeight.Bold
                         )
+                    } else {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = onAbrirAgregarCliente,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Agregar Nuevo Cliente")
+                        }
+                    }
+                }
+            }
+        }
+
+        if (plantillasEmpresa.isNotEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Cobros Recurrentes Activos (${plantillasEmpresa.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Registrados una sola vez con programación mensual automática:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        plantillasEmpresa.forEach { p ->
+                            Text(
+                                text = "• ${p.concepto} → ${p.usuarioNombre} (${formatoClp.format(p.monto)}/mes • ${p.mesesProgramados} meses)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -2640,12 +2913,6 @@ private fun VistaPerfil(
         else -> "Strikes"
     }
 
-    val subtituloSeguridad = if (uiState.correoRespaldo.isNotBlank()) {
-        "Respaldo: ${uiState.correoRespaldo}"
-    } else {
-        "Correo principal, respaldo y clave"
-    }
-
     val misTickets = remember(uiState.ticketsSoporte, user) {
         if (user == null) emptyList() else uiState.ticketsSoporte.filter { it.usuarioId == user.id }
     }
@@ -2733,20 +3000,23 @@ private fun VistaPerfil(
             if (!user?.rut.isNullOrBlank()) {
                 Text(
                     text = "RUT: ${user?.rut}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(50)
             ) {
                 Text(
-                    text = "Cuenta $rol",
+                    text = when (rol) {
+                        "EJECUTIVO" -> "Cuenta Ejecutivo"
+                        "ADMIN" -> "Administrador Plataforma"
+                        else -> "Cliente"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -2758,117 +3028,149 @@ private fun VistaPerfil(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 14.dp),
+                    .padding(vertical = 14.dp, horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ColumnaMetricaPerfil(valor = stat1Valor.toString(), etiqueta = stat1Label)
-                VerticalDivider(modifier = Modifier.height(32.dp))
-                ColumnaMetricaPerfil(valor = stat2Valor.toString(), etiqueta = stat2Label)
-                VerticalDivider(modifier = Modifier.height(32.dp))
-                ColumnaMetricaPerfil(
-                    valor = stat3Valor.toString(),
-                    etiqueta = stat3Label,
-                    colorValor = if (!esAdmin && !esEjecutivo && strikesPropios > 0) {
-                        Color(0xFFDC2626)
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stat1Valor.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stat1Label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(28.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
                 )
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stat2Valor.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF16A34A)
+                    )
+                    Text(
+                        text = stat2Label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(28.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                )
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stat3Valor.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (!esEjecutivo && !esAdmin && strikesPropios > 0) Color(0xFFDC2626) else MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = stat3Label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column {
-                FilaMenuPerfil(
-                    icono = Icons.Default.Person,
-                    titulo = "Datos personales",
-                    subtitulo = "Nombre, correo y RUT",
-                    onClick = onAbrirDatosPersonales
-                )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                FilaMenuPerfil(
-                    icono = Icons.Default.Lock,
-                    titulo = "Seguridad",
-                    subtitulo = subtituloSeguridad,
-                    onClick = onAbrirSeguridad
-                )
-                if (!esAdmin) {
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                    FilaMenuPerfil(
-                        icono = Icons.Default.Email,
-                        titulo = "Soporte y Reportes",
-                        subtitulo = subtituloSoporte,
-                        onClick = onAbrirSoporte
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Cuenta y Configuración",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column {
+                    FilaOpcionPerfil(
+                        icono = Icons.Default.Person,
+                        titulo = "Datos personales",
+                        subtitulo = "Editar nombre visible",
+                        onClick = onAbrirDatosPersonales
                     )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    FilaOpcionPerfil(
+                        icono = Icons.Default.Lock,
+                        titulo = "Seguridad de la cuenta",
+                        subtitulo = "Sesión verificada y cambio de contraseña",
+                        onClick = onAbrirSeguridad
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    FilaOpcionPerfil(
+                        icono = Icons.Default.Edit,
+                        titulo = "Apariencia",
+                        subtitulo = "Paleta de colores del tema (próximamente)",
+                        onClick = onAvisoColorFuturo
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    FilaOpcionPerfil(
+                        icono = Icons.Default.Share,
+                        titulo = if (esAdmin) "Exportar consolidado plataforma" else "Exportar historial CSV",
+                        subtitulo = "Guardar en Descargas y compartir",
+                        onClick = onExportarCsv
+                    )
+                    if (!esAdmin) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        FilaOpcionPerfil(
+                            icono = Icons.Default.Email,
+                            titulo = "Centro de Soporte y Ayuda",
+                            subtitulo = subtituloSoporte,
+                            onClick = onAbrirSoporte
+                        )
+                    }
                 }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                FilaMenuPerfil(
-                    icono = Icons.Default.Star,
-                    titulo = "Apariencia y colores",
-                    subtitulo = "Tema institucional (configurable próximamente)",
-                    onClick = onAvisoColorFuturo
-                )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                FilaMenuPerfil(
-                    icono = Icons.Default.Share,
-                    titulo = when {
-                        esAdmin -> "Reporte consolidado por empresa (CSV)"
-                        esEjecutivo -> "Reporte de cobranza empresarial (CSV)"
-                        else -> "Informe de mis gastos (CSV)"
-                    },
-                    subtitulo = "Guarda en Descargas y comparte",
-                    onClick = onExportarCsv
-                )
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         OutlinedButton(
             onClick = onCerrarSesion,
-            shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),
+            shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
         ) {
             Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Cerrar Sesión", fontWeight = FontWeight.SemiBold)
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun ColumnaMetricaPerfil(
-    valor: String,
-    etiqueta: String,
-    colorValor: Color = MaterialTheme.colorScheme.primary
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = valor,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = colorValor
-        )
-        Text(
-            text = etiqueta,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun FilaMenuPerfil(
+private fun FilaOpcionPerfil(
     icono: ImageVector,
     titulo: String,
     subtitulo: String,
@@ -2877,32 +3179,39 @@ private fun FilaMenuPerfil(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
-            contentAlignment = Alignment.Center
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+            shape = CircleShape,
+            modifier = Modifier.size(38.dp)
         ) {
-            Icon(
-                imageVector = icono,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icono,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
-        Spacer(modifier = Modifier.width(12.dp))
+
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = titulo, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = titulo,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
             Text(
                 text = subtitulo,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
@@ -2912,8 +3221,183 @@ private fun FilaMenuPerfil(
 }
 
 // =========================================================================
-// DIÁLOGOS
+// DIÁLOGOS DE GESTIÓN, REGISTRO Y SOPORTE
 // =========================================================================
+
+@Composable
+private fun DialogoRegistrarEmpresaUsuario(
+    uiState: InicioUiState,
+    onNombreChange: (String) -> Unit,
+    onTipoChange: (String) -> Unit,
+    onRutChange: (String) -> Unit,
+    onCorreoChange: (String) -> Unit,
+    onGuardar: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val tipos = listOf("Empresa", "Edificio", "Jardín", "Club")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Registrar Nueva Empresa",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Crea una nueva entidad en PagoFlex y vincúlala automáticamente a tu perfil.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevaEmpresaNombreInput,
+                    onValueChange = onNombreChange,
+                    label = { Text("Nombre de la empresa o entidad") },
+                    isError = uiState.errorNuevaEmpresaNombre != null,
+                    supportingText = {
+                        uiState.errorNuevaEmpresaNombre?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Tipo de entidad:", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    tipos.forEach { tipo ->
+                        FilterChip(
+                            selected = uiState.nuevaEmpresaTipoInput == tipo,
+                            onClick = { onTipoChange(tipo) },
+                            label = { Text(tipo) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = uiState.nuevaEmpresaRutInput,
+                    onValueChange = onRutChange,
+                    label = { Text("RUT Empresa (ej: 76.123.456-0)") },
+                    isError = uiState.errorNuevaEmpresaRut != null,
+                    supportingText = {
+                        uiState.errorNuevaEmpresaRut?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevaEmpresaCorreoInput,
+                    onValueChange = onCorreoChange,
+                    label = { Text("Correo de contacto institucional") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    isError = uiState.errorNuevaEmpresaCorreo != null,
+                    supportingText = {
+                        uiState.errorNuevaEmpresaCorreo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGuardar) {
+                Text("Registrar Empresa")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DialogoAgregarClienteEjecutivo(
+    uiState: InicioUiState,
+    onNombreChange: (String) -> Unit,
+    onRutChange: (String) -> Unit,
+    onCorreoChange: (String) -> Unit,
+    onGuardar: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Agregar Nuevo Cliente",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Si el cliente ya tiene cuenta en PagoFlex se vinculará de inmediato; si es nuevo, se creará su perfil de cliente y quedará asociado a tu empresa.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevoClienteNombreInput,
+                    onValueChange = onNombreChange,
+                    label = { Text("Nombre completo del cliente") },
+                    isError = uiState.errorNuevoClienteNombre != null,
+                    supportingText = {
+                        uiState.errorNuevoClienteNombre?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevoClienteRutInput,
+                    onValueChange = onRutChange,
+                    label = { Text("RUT (ej: 12.345.678-9)") },
+                    isError = uiState.errorNuevoClienteRut != null,
+                    supportingText = {
+                        uiState.errorNuevoClienteRut?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevoClienteCorreoInput,
+                    onValueChange = onCorreoChange,
+                    label = { Text("Correo electrónico del cliente") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    isError = uiState.errorNuevoClienteCorreo != null,
+                    supportingText = {
+                        uiState.errorNuevoClienteCorreo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGuardar) {
+                Text("Agregar y Vincular")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
 
 @Composable
 private fun DialogoSuspenderEmpresaAdmin(
@@ -2925,12 +3409,13 @@ private fun DialogoSuspenderEmpresaAdmin(
     onConfirmar: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val estaSuspendida = !motivoActual.isNullOrBlank()
+    val estaSuspendida = motivoActual != null
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (estaSuspendida) "Reactivar Empresa" else "Suspender Empresa",
+                text = if (estaSuspendida) "Reactivar Empresa" else "Suspender Operación de Empresa",
                 fontWeight = FontWeight.Bold
             )
         },
@@ -2938,29 +3423,29 @@ private fun DialogoSuspenderEmpresaAdmin(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "${organizacion.nombre} (RUT: ${organizacion.rut})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
                 if (estaSuspendida) {
                     Text(
-                        text = "Esta empresa se encuentra suspendida.\nMotivo registrado: $motivoActual",
+                        text = "Motivo actual de suspensión: $motivoActual",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFDC2626)
+                        color = MaterialTheme.colorScheme.error
                     )
                     Text(
-                        text = "¿Deseas restaurar su operación para emitir cobros y recibir solicitudes?",
+                        text = "Al reactivar la empresa, sus ejecutivos volverán a emitir cobros y los clientes podrán solicitar vinculación.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
                     Text(
-                        text = "Mientras esté suspendida, sus ejecutivos no podrán emitir nuevos cobros ni los clientes solicitar vinculación.",
-                        style = MaterialTheme.typography.bodySmall
+                        text = "Al suspender esta entidad, sus ejecutivos no podrán emitir nuevos cobros ni aceptar solicitudes hasta su reactivación.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = motivoInput,
                         onValueChange = onMotivoChange,
-                        label = { Text("Motivo de suspensión (mín. 5 car.)") },
-                        placeholder = { Text("Ej: Revisión documental de representante legal") },
+                        label = { Text("Motivo de la suspensión") },
+                        placeholder = { Text("Ej: Revisión documental o incumplimiento") },
                         isError = errorMotivo != null,
                         supportingText = {
                             errorMotivo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -2981,7 +3466,7 @@ private fun DialogoSuspenderEmpresaAdmin(
             } else {
                 Button(
                     onClick = { onConfirmar(true) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text("Suspender Empresa")
                 }
@@ -3002,44 +3487,50 @@ private fun DialogoSoporteUsuario(
     onEnviar: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val esEjecutivo = uiState.usuarioActual?.rol == "EJECUTIVO"
-    val categorias = remember(esEjecutivo) {
-        if (esEjecutivo) {
+    val user = uiState.usuarioActual
+    val categorias = remember(user?.rol) {
+        if (user?.rol == "EJECUTIVO") {
             listOf(
                 "Validación de comprobante",
-                "Reporte de cliente",
-                "Gestión de empresa",
-                "Error en la app"
+                "Problema con cliente",
+                "Problema técnico",
+                "Consulta general"
             )
         } else {
             listOf(
                 "Problema con pago",
                 "Apelación de Strike",
-                "Problema con empresa",
-                "Error en la app"
+                "Vinculación de empresa",
+                "Problema técnico",
+                "Consulta general"
             )
         }
     }
-    val userId = uiState.usuarioActual?.id ?: 0
-    val misTickets = remember(uiState.ticketsSoporte, userId) {
-        uiState.ticketsSoporte.filter { it.usuarioId == userId }
+    val misTickets = remember(uiState.ticketsSoporte, user) {
+        if (user == null) emptyList() else uiState.ticketsSoporte.filter { it.usuarioId == user.id }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Soporte y Reportes", fontWeight = FontWeight.Bold) },
+        title = {
+            Text("Centro de Soporte PagoFlex", fontWeight = FontWeight.Bold)
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Envía un mensaje directo al Administrador de PagoFlex:",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Envía un mensaje directo al Administrador de la plataforma o revisa las respuestas a tus consultas.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                Text("Categoría:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     categorias.forEach { cat ->
@@ -3055,12 +3546,7 @@ private fun DialogoSoporteUsuario(
                     value = uiState.asuntoSoporteInput,
                     onValueChange = onAsuntoChange,
                     label = { Text("Asunto") },
-                    placeholder = {
-                        Text(
-                            if (esEjecutivo) "Ej: Comprobante duplicado en cobro"
-                            else "Ej: Error al subir comprobante PDF"
-                        )
-                    },
+                    placeholder = { Text("Ej: Error al adjuntar comprobante") },
                     isError = uiState.errorAsuntoSoporte != null,
                     supportingText = {
                         uiState.errorAsuntoSoporte?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3072,7 +3558,8 @@ private fun DialogoSoporteUsuario(
                 OutlinedTextField(
                     value = uiState.mensajeSoporteInput,
                     onValueChange = onMensajeChange,
-                    label = { Text("Describe tu problema o consulta") },
+                    label = { Text("Detalle de tu mensaje") },
+                    placeholder = { Text("Explica brevemente lo ocurrido...") },
                     isError = uiState.errorMensajeSoporte != null,
                     supportingText = {
                         uiState.errorMensajeSoporte?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3091,8 +3578,8 @@ private fun DialogoSoporteUsuario(
                 if (misTickets.isNotEmpty()) {
                     HorizontalDivider()
                     Text(
-                        text = "Mis Consultas Anteriores (${misTickets.size})",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "Mis Consultas Enviadas (${misTickets.size})",
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                     misTickets.forEach { t ->
@@ -3101,12 +3588,20 @@ private fun DialogoSoporteUsuario(
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("${t.id} • ${t.categoria}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "${t.id} • ${t.asunto}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f)
+                                    )
                                     Text(
                                         text = t.estado,
                                         style = MaterialTheme.typography.labelSmall,
@@ -3114,15 +3609,20 @@ private fun DialogoSoporteUsuario(
                                         color = if (t.estado == "RESUELTO") Color(0xFF16A34A) else Color(0xFFD97706)
                                     )
                                 }
-                                Text(t.asunto, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                                Text(t.mensaje, style = MaterialTheme.typography.bodySmall)
+                                Text(text = t.mensaje, style = MaterialTheme.typography.bodySmall)
                                 if (!t.respuestaAdmin.isNullOrBlank()) {
-                                    Text(
-                                        text = "Respuesta Admin: ${t.respuestaAdmin}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Admin: ${t.respuestaAdmin}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3147,36 +3647,25 @@ private fun DialogoResponderTicketAdmin(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Responder Ticket ${ticket.id}", fontWeight = FontWeight.Bold) },
+        title = {
+            Text("Responder Ticket ${ticket.id}", fontWeight = FontWeight.Bold)
+        },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "${ticket.usuarioNombre} (${ticket.usuarioRol})" +
-                            (ticket.empresaNombre?.let { " • $it" } ?: ""),
+                    text = "${ticket.usuarioNombre} (${ticket.usuarioRol}) • ${ticket.categoria}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
+                    color = MaterialTheme.colorScheme.primary
                 )
-                Text(text = ticket.asunto, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = ticket.mensaje,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(10.dp)
-                    )
-                }
-
+                Text(
+                    text = "Consulta: ${ticket.mensaje}",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 OutlinedTextField(
                     value = respuestaInput,
                     onValueChange = onRespuestaChange,
-                    label = { Text("Respuesta oficial de Administración") },
+                    label = { Text("Respuesta oficial") },
+                    placeholder = { Text("Escribe la solución o indicación para el usuario...") },
                     isError = errorRespuesta != null,
                     supportingText = {
                         errorRespuesta?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3191,352 +3680,8 @@ private fun DialogoResponderTicketAdmin(
                 onClick = onConfirmar,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
             ) {
-                Text("Enviar y Resolver")
+                Text("Enviar Respuesta")
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
-}
-
-@Composable
-private fun DialogoFotoPerfil(
-    uiState: InicioUiState,
-    onDismiss: () -> Unit,
-    onSeleccionarFoto: () -> Unit,
-    onQuitarFoto: () -> Unit
-) {
-    val avatarBitmap = rememberAvatarBitmap(uiState.avatarPath)
-    val nombreActual = uiState.usuarioActual?.nombre ?: "PF"
-    val iniciales = remember(nombreActual) {
-        nombreActual
-            .trim()
-            .split(" ")
-            .filter { it.isNotBlank() }
-            .take(2)
-            .joinToString("") { it.first().uppercase() }
-            .ifBlank { "PF" }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Foto de Perfil", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(104.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (avatarBitmap != null) {
-                        Image(
-                            bitmap = avatarBitmap,
-                            contentDescription = "Vista previa foto de perfil",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Text(
-                            text = iniciales,
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = onSeleccionarFoto,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (avatarBitmap != null) "Cambiar foto desde galería" else "Elegir foto desde galería")
-                }
-
-                if (avatarBitmap != null) {
-                    OutlinedButton(
-                        onClick = onQuitarFoto,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Quitar foto actual")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cerrar") }
-        }
-    )
-}
-
-@Composable
-private fun DialogoDatosPersonales(
-    uiState: InicioUiState,
-    onDismiss: () -> Unit,
-    onNombreChange: (String) -> Unit,
-    onGuardar: () -> Unit
-) {
-    val user = uiState.usuarioActual
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Datos Personales", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = uiState.nombrePerfilInput,
-                    onValueChange = onNombreChange,
-                    label = { Text("Nombre completo") },
-                    isError = uiState.errorNombrePerfilInput != null,
-                    supportingText = {
-                        uiState.errorNombrePerfilInput?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = user?.correo ?: "",
-                    onValueChange = {},
-                    enabled = false,
-                    readOnly = true,
-                    label = { Text("Correo electrónico") },
-                    supportingText = {
-                        Text("Para cambiar tu correo, ingresa a Seguridad.")
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = user?.rut?.ifBlank { "No registrado" } ?: "",
-                    onValueChange = {},
-                    enabled = false,
-                    readOnly = true,
-                    label = { Text("RUT") },
-                    supportingText = {
-                        Text("Identificador único asociado a tu cuenta (no modificable).")
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onGuardar) { Text("Guardar Nombre") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
-}
-
-@Composable
-private fun DialogoSeguridadCuenta(
-    uiState: InicioUiState,
-    onDismiss: () -> Unit,
-    onCorreoPrincipalChange: (String) -> Unit,
-    onCorreoRespaldoChange: (String) -> Unit,
-    onEliminarCorreoRespaldo: () -> Unit,
-    onToggleCambioClave: (Boolean) -> Unit,
-    onClaveActualChange: (String) -> Unit,
-    onNuevaClaveChange: (String) -> Unit,
-    onConfirmarClaveChange: (String) -> Unit,
-    onGuardar: () -> Unit
-) {
-    val correoActual = uiState.usuarioActual?.correo ?: ""
-    val cambiaCorreoPrincipal = uiState.correoPrincipalInput.trim() != correoActual
-    val coincidenNuevas = uiState.nuevaClavePerfil.length >= 6 &&
-            uiState.nuevaClavePerfil == uiState.confirmarClavePerfil &&
-            uiState.errorClavePerfil == null
-
-    var verClaveActual by remember { mutableStateOf(false) }
-    var verNuevaClave by remember { mutableStateOf(false) }
-    var verConfirmarClave by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Seguridad y Correos", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Correo electrónico principal",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                OutlinedTextField(
-                    value = uiState.correoPrincipalInput,
-                    onValueChange = onCorreoPrincipalChange,
-                    label = { Text("Correo de inicio de sesión") },
-                    isError = uiState.errorCorreoPrincipalInput != null,
-                    supportingText = {
-                        uiState.errorCorreoPrincipalInput?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Correo de respaldo",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (uiState.correoRespaldo.isNotBlank() || uiState.correoRespaldoInput.isNotBlank()) {
-                        TextButton(
-                            onClick = onEliminarCorreoRespaldo,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Eliminar", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = uiState.correoRespaldoInput,
-                    onValueChange = onCorreoRespaldoChange,
-                    label = { Text("Correo secundario (opcional)") },
-                    placeholder = { Text("Ej: respaldo@correo.cl") },
-                    isError = uiState.errorCorreoRespaldoInput != null,
-                    supportingText = {
-                        uiState.errorCorreoRespaldoInput?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Cambiar contraseña",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Doble verificación obligatoria",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = uiState.expandirCambioClavePerfil,
-                        onCheckedChange = onToggleCambioClave
-                    )
-                }
-
-                if (cambiaCorreoPrincipal || uiState.expandirCambioClavePerfil) {
-                    OutlinedTextField(
-                        value = uiState.claveActualPerfil,
-                        onValueChange = onClaveActualChange,
-                        label = { Text("Contraseña actual (verificación)") },
-                        isError = uiState.errorClaveActualPerfil != null,
-                        supportingText = {
-                            uiState.errorClaveActualPerfil?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        visualTransformation = if (verClaveActual) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { verClaveActual = !verClaveActual }) {
-                                IconoOjitoContrasena(
-                                    visible = verClaveActual,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                if (uiState.expandirCambioClavePerfil) {
-                    OutlinedTextField(
-                        value = uiState.nuevaClavePerfil,
-                        onValueChange = onNuevaClaveChange,
-                        label = { Text("Nueva contraseña (mín. 6 caracteres)") },
-                        isError = uiState.errorClavePerfil != null,
-                        supportingText = {
-                            uiState.errorClavePerfil?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        visualTransformation = if (verNuevaClave) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { verNuevaClave = !verNuevaClave }) {
-                                IconoOjitoContrasena(
-                                    visible = verNuevaClave,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = uiState.confirmarClavePerfil,
-                        onValueChange = onConfirmarClaveChange,
-                        label = { Text("Repetir nueva contraseña") },
-                        isError = uiState.errorConfirmarClavePerfil != null,
-                        supportingText = {
-                            when {
-                                uiState.errorConfirmarClavePerfil != null -> {
-                                    Text(uiState.errorConfirmarClavePerfil, color = MaterialTheme.colorScheme.error)
-                                }
-                                coincidenNuevas -> {
-                                    Text("Las contraseñas coinciden", color = Color(0xFF16A34A))
-                                }
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        visualTransformation = if (verConfirmarClave) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { verConfirmarClave = !verConfirmarClave }) {
-                                IconoOjitoContrasena(
-                                    visible = verConfirmarClave,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onGuardar) { Text("Guardar Seguridad") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancelar") }
@@ -3555,24 +3700,24 @@ private fun DialogoSolicitarEmpresasCliente(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Solicitar Vinculación", fontWeight = FontWeight.Bold) },
+        title = { Text("Solicitar Vinculación a Empresa") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Selecciona una empresa para enviar solicitud de afiliación. Un ejecutivo revisará tu perfil financiero:",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Selecciona una empresa para enviar tu solicitud de integración. El ejecutivo revisará tu historial financiero antes de aprobar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
                 uiState.organizaciones.forEach { org ->
-                    val sol = solicitudesUsuario.find { it.organizacionId == org.id }
+                    val solicitudExistente = solicitudesUsuario.find { it.organizacionId == org.id }
                     val suspendida = uiState.empresasSuspendidas.containsKey(org.id)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                        )
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                     ) {
                         Row(
                             modifier = Modifier
@@ -3586,45 +3731,32 @@ private fun DialogoSolicitarEmpresasCliente(
                                 Text("${org.tipo} • ${org.rut}", style = MaterialTheme.typography.bodySmall)
                             }
                             when {
-                                suspendida -> {
-                                    Text(
-                                        text = "Suspendida",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color(0xFFDC2626),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                sol?.estado == EstadoVinculo.APROBADA -> {
-                                    Text(
-                                        text = "Vinculada",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color(0xFF16A34A),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                sol?.estado == EstadoVinculo.PENDIENTE -> {
-                                    Text(
-                                        text = "En revisión",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color(0xFFD97706),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                sol?.estado == EstadoVinculo.BLOQUEADA -> {
-                                    Text(
-                                        text = "Bloqueada",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color(0xFFDC2626),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                else -> {
-                                    Button(
-                                        onClick = { onSolicitarEmpresa(org.id) },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Text("Solicitar")
-                                    }
+                                suspendida -> Text(
+                                    "Suspendida",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                solicitudExistente?.estado == EstadoVinculo.APROBADA -> Text(
+                                    "Aprobada",
+                                    color = Color(0xFF16A34A),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                solicitudExistente?.estado == EstadoVinculo.PENDIENTE -> Text(
+                                    "En revisión",
+                                    color = Color(0xFFD97706),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                solicitudExistente?.estado == EstadoVinculo.BLOQUEADA -> Text(
+                                    "Bloqueada",
+                                    color = Color(0xFF991B1B),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                else -> Button(onClick = { onSolicitarEmpresa(org.id) }) {
+                                    Text("Solicitar")
                                 }
                             }
                         }
@@ -3651,15 +3783,22 @@ private fun DialogoRevisionPerfilCliente(
     onDismiss: () -> Unit
 ) {
     val formatoClp = remember { NumberFormat.getCurrencyInstance(Locale("es", "CL")) }
-    val esSolicitudPendiente = perfil.solicitud.estado == EstadoVinculo.PENDIENTE
+    val esPendiente = perfil.solicitud.estado == EstadoVinculo.PENDIENTE
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                text = if (esSolicitudPendiente) "Evaluación de Solicitud" else "Ficha de Riesgo y Strikes",
-                fontWeight = FontWeight.Bold
-            )
+            Column {
+                Text(
+                    text = if (esPendiente) "Evaluación de Solicitud" else "Ficha Financiera del Cliente",
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${perfil.cliente.nombre} • RUT: ${perfil.cliente.rut.ifBlank { "-" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         },
         text = {
             Column(
@@ -3667,34 +3806,33 @@ private fun DialogoRevisionPerfilCliente(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                    color = if (perfil.strikesAcumulados > 0) {
+                        MaterialTheme.colorScheme.errorContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    },
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(perfil.cliente.nombre, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("RUT: ${perfil.cliente.rut.ifBlank { "No registrado" }}", style = MaterialTheme.typography.bodySmall)
-                        Text("Correo: ${perfil.cliente.correo}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-
-                if (perfil.strikesAcumulados > 0) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "⚠️ Strikes Activos: ${perfil.strikesAcumulados} / ${InicioViewModel.STRIKES_UMBRAL_APP}",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                        Text(
+                            text = "Strikes Acumulados (Mora): ${perfil.strikesAcumulados} / ${InicioViewModel.STRIKES_UMBRAL_APP}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (perfil.strikesAcumulados > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "Riesgo: ${perfil.nivelRiesgo}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (perfil.strikesAcumulados > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        if (perfil.detalleStrikes.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
                             perfil.detalleStrikes.forEach { detalle ->
                                 Text(
                                     text = "• $detalle",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
@@ -3702,30 +3840,32 @@ private fun DialogoRevisionPerfilCliente(
                     }
                 }
 
-                Text("Comportamiento histórico en PagoFlex:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("• Índice de cumplimiento: ${perfil.porcentajeCumplimiento}%", fontWeight = FontWeight.SemiBold)
-                        Text("• Compromisos pagados: ${perfil.pagados} (${formatoClp.format(perfil.montoTotalPagado)})")
-                        Text("• Pendientes / En revisión: ${perfil.pendientes + perfil.enRevision} (${perfil.compromisosPorVencerCount} por vencer)")
-                        Text("• Comprobantes rechazados: ${perfil.rechazados}")
-                        Text("• Deuda activa en plataforma: ${formatoClp.format(perfil.montoDeudaActual)}")
-                        Spacer(Modifier.height(4.dp))
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text(
-                            text = "Diagnóstico: ${perfil.nivelRiesgo}",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = when {
-                                perfil.strikesAcumulados > 0 || perfil.rechazados > 0 -> Color(0xFFDC2626)
-                                perfil.pendientes >= 2 -> Color(0xFFD97706)
-                                else -> Color(0xFF16A34A)
-                            }
+                            text = "Resumen Financiero en Plataforma",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                        Text("• Cumplimiento histórico: ${perfil.porcentajeCumplimiento}%")
+                        Text("• Compromisos pagados: ${perfil.pagados} (${formatoClp.format(perfil.montoTotalPagado)})")
+                        Text("• Pendientes / En revisión: ${perfil.pendientes} / ${perfil.enRevision}")
+                        if (perfil.compromisosPorVencerCount > 0) {
+                            Text(
+                                text = "• Próximos a vencer (≤ 3 días): ${perfil.compromisosPorVencerCount}",
+                                color = Color(0xFFB45309),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Text("• Comprobantes rechazados: ${perfil.rechazados}")
+                        Text("• Deuda vigente total: ${formatoClp.format(perfil.montoDeudaActual)}")
                     }
                 }
 
@@ -3736,7 +3876,7 @@ private fun DialogoRevisionPerfilCliente(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Estado actual: CLIENTE BLOQUEADO EN ESTA EMPRESA\nMotivo: ${perfil.solicitud.motivoRechazo ?: "Incumplimiento de pagos"}",
+                            text = "Este cliente se encuentra bloqueado en tu empresa. Motivo: ${perfil.solicitud.motivoRechazo ?: "-"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(10.dp)
@@ -3747,15 +3887,11 @@ private fun DialogoRevisionPerfilCliente(
                         value = motivoRechazo,
                         onValueChange = onMotivoChange,
                         label = {
-                            Text(
-                                if (esSolicitudPendiente) {
-                                    "Motivo (obligatorio si rechazas)"
-                                } else {
-                                    "Motivo de bloqueo al cliente (mín. 5 car.)"
-                                }
-                            )
+                            Text(if (esPendiente) "Motivo de rechazo (si rechazas)" else "Motivo para bloquear cliente")
                         },
-                        placeholder = { Text("Ej: Acumula strikes por vencimiento impago") },
+                        placeholder = {
+                            Text(if (esPendiente) "Ej: No figura como residente activo" else "Ej: Acumulación de strikes por atraso")
+                        },
                         isError = errorMotivo != null,
                         supportingText = {
                             errorMotivo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3766,32 +3902,30 @@ private fun DialogoRevisionPerfilCliente(
             }
         },
         confirmButton = {
-            when {
-                esSolicitudPendiente -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onRechazar) {
-                            Text("Rechazar", color = MaterialTheme.colorScheme.error)
-                        }
-                        Button(
-                            onClick = onAprobar,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
-                        ) {
-                            Text("Aprobar Cliente")
-                        }
+            if (esPendiente) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onRechazar) {
+                        Text("Rechazar", color = MaterialTheme.colorScheme.error)
+                    }
+                    Button(
+                        onClick = onAprobar,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                    ) {
+                        Text("Aprobar")
                     }
                 }
-                perfil.bloqueadoEnEstaEmpresa -> {
+            } else {
+                if (perfil.bloqueadoEnEstaEmpresa) {
                     Button(
                         onClick = onDesbloquearCliente,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
                     ) {
                         Text("Desbloquear Cliente")
                     }
-                }
-                else -> {
+                } else {
                     Button(
                         onClick = onBloquearCliente,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
                         Text("Bloquear Cliente")
                     }
@@ -3816,126 +3950,360 @@ private fun DialogoGestionarUsuarioAdmin(
     onToggleBloqueoApp: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val estaBloqueadoEnApp = !motivoBloqueoActual.isNullOrBlank()
+    val estaSuspendido = motivoBloqueoActual != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gestión de Cuenta", fontWeight = FontWeight.Bold) },
+        title = {
+            Text("Gobernanza de Cuenta", fontWeight = FontWeight.Bold)
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(usuario.nombre, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "RUT: ${usuario.rut.ifBlank { "No registrado" }} • ${usuario.correo}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text(
-                        text = "Rol: ${usuario.rol}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
+                Text("${usuario.nombre} (${usuario.rol})", fontWeight = FontWeight.Bold)
+                Text("RUT: ${usuario.rut.ifBlank { "-" }} • ${usuario.correo}", style = MaterialTheme.typography.bodySmall)
 
                 if (usuario.rol == "USUARIO") {
                     Surface(
                         color = if (strikesCount >= InicioViewModel.STRIKES_UMBRAL_APP) {
                             MaterialTheme.colorScheme.errorContainer
                         } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            MaterialTheme.colorScheme.surfaceVariant
                         },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
                             Text(
                                 text = "Historial de Strikes: $strikesCount / ${InicioViewModel.STRIKES_UMBRAL_APP}",
-                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = if (strikesCount > 0) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
+                                style = MaterialTheme.typography.labelLarge
                             )
                             if (detalleStrikes.isEmpty()) {
-                                Text("Sin strikes por vencimiento.", style = MaterialTheme.typography.bodySmall)
+                                Text("Sin strikes por atraso en la plataforma.", style = MaterialTheme.typography.bodySmall)
                             } else {
                                 detalleStrikes.forEach { d ->
-                                    Text("• $d", style = MaterialTheme.typography.bodySmall)
+                                    Text("• $d", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
                     }
                 }
 
-                if (usuario.rol != "ADMIN") {
+                if (estaSuspendido) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (estaBloqueadoEnApp) {
-                                Text(
-                                    text = "⛔ CUENTA SUSPENDIDA DE LA APP\nMotivo: $motivoBloqueoActual",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFDC2626),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Button(
-                                    onClick = { onToggleBloqueoApp(false) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Reactivar Cuenta en PagoFlex")
-                                }
-                            } else {
-                                Text(
-                                    text = if (usuario.rol == "USUARIO" && strikesCount >= InicioViewModel.STRIKES_UMBRAL_APP) {
-                                        "⚠️ Superó el umbral de strikes. Apto para suspensión global."
-                                    } else {
-                                        "Suspensión global (impide iniciar sesión en la app):"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (usuario.rol == "USUARIO" && strikesCount >= InicioViewModel.STRIKES_UMBRAL_APP) {
-                                        Color(0xFFDC2626)
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                                OutlinedTextField(
-                                    value = motivoBloqueoInput,
-                                    onValueChange = onMotivoBloqueoChange,
-                                    label = { Text("Motivo de suspensión global (mín. 5 car.)") },
-                                    isError = errorMotivoBloqueo != null,
-                                    supportingText = {
-                                        errorMotivoBloqueo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Button(
-                                    onClick = { onToggleBloqueoApp(true) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Suspender Cuenta de la App")
-                                }
-                            }
-                        }
+                        Text(
+                            text = "Cuenta suspendida de PagoFlex. Motivo: $motivoBloqueoActual",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(10.dp)
+                        )
                     }
+                } else {
+                    OutlinedTextField(
+                        value = motivoBloqueoInput,
+                        onValueChange = onMotivoBloqueoChange,
+                        label = { Text("Motivo de suspensión global en App") },
+                        placeholder = { Text("Ej: 3 Strikes acumulados por incumplimiento reiterado") },
+                        isError = errorMotivoBloqueo != null,
+                        supportingText = {
+                            errorMotivoBloqueo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         },
         confirmButton = {
+            if (estaSuspendido) {
+                Button(
+                    onClick = { onToggleBloqueoApp(false) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                ) {
+                    Text("Reactivar Cuenta")
+                }
+            } else {
+                Button(
+                    onClick = { onToggleBloqueoApp(true) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Bloquear de la App")
+                }
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cerrar") }
         }
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DialogoFotoPerfil(
+    uiState: InicioUiState,
+    onDismiss: () -> Unit,
+    onSeleccionarFoto: () -> Unit,
+    onQuitarFoto: () -> Unit
+) {
+    val avatarBitmap = rememberAvatarBitmap(uiState.avatarPath)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Foto de perfil") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(104.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (avatarBitmap != null) {
+                        Image(
+                            bitmap = avatarBitmap,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(46.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Text(
+                    text = "Elige una imagen desde tu galería para personalizar tu cuenta.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onSeleccionarFoto) {
+                Text("Elegir de galería")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (uiState.avatarPath != null) {
+                    TextButton(onClick = onQuitarFoto) {
+                        Text("Quitar foto", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cerrar")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun DialogoDatosPersonales(
+    uiState: InicioUiState,
+    onDismiss: () -> Unit,
+    onNombreChange: (String) -> Unit,
+    onGuardar: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Datos personales") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = uiState.nombrePerfilInput,
+                    onValueChange = onNombreChange,
+                    label = { Text("Nombre completo") },
+                    isError = uiState.errorNombrePerfilInput != null,
+                    supportingText = {
+                        uiState.errorNombrePerfilInput?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = uiState.usuarioActual?.rut ?: "",
+                    onValueChange = {},
+                    label = { Text("RUT asociado") },
+                    enabled = false,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = when (uiState.usuarioActual?.rol) {
+                        "EJECUTIVO" -> "Cuenta Ejecutivo"
+                        "ADMIN" -> "Administrador Plataforma"
+                        else -> "Cliente"
+                    },
+                    onValueChange = {},
+                    label = { Text("Tipo de cuenta") },
+                    enabled = false,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGuardar) { Text("Guardar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+@Composable
+private fun DialogoSeguridadCuenta(
+    uiState: InicioUiState,
+    onDismiss: () -> Unit,
+    onClaveActualChange: (String) -> Unit,
+    onNuevaClaveChange: (String) -> Unit,
+    onConfirmarClaveChange: (String) -> Unit,
+    onGuardar: () -> Unit
+) {
+    var verClaveActual by remember { mutableStateOf(false) }
+    var verNuevaClave by remember { mutableStateOf(false) }
+    var verConfirmarClave by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Seguridad de la Cuenta", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Identidad y Sesión Verificada",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Correo titular: ${uiState.usuarioActual?.correo.orEmpty()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "• El correo titular está protegido y no puede modificarse sin verificación externa.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "• El cambio de contraseña exige validar tu clave actual.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                Text(
+                    text = "Actualizar Contraseña",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedTextField(
+                    value = uiState.claveActualPerfil,
+                    onValueChange = onClaveActualChange,
+                    label = { Text("Contraseña actual") },
+                    visualTransformation = if (verClaveActual) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { verClaveActual = !verClaveActual }) {
+                            IconoOjitoContrasena(
+                                visible = verClaveActual,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    isError = uiState.errorClaveActualPerfil != null,
+                    supportingText = {
+                        uiState.errorClaveActualPerfil?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = uiState.nuevaClavePerfil,
+                    onValueChange = onNuevaClaveChange,
+                    label = { Text("Nueva contraseña (mín. 6 car.)") },
+                    visualTransformation = if (verNuevaClave) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { verNuevaClave = !verNuevaClave }) {
+                            IconoOjitoContrasena(
+                                visible = verNuevaClave,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    isError = uiState.errorClavePerfil != null,
+                    supportingText = {
+                        uiState.errorClavePerfil?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = uiState.confirmarClavePerfil,
+                    onValueChange = onConfirmarClaveChange,
+                    label = { Text("Confirmar nueva contraseña") },
+                    visualTransformation = if (verConfirmarClave) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { verConfirmarClave = !verConfirmarClave }) {
+                            IconoOjitoContrasena(
+                                visible = verConfirmarClave,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    isError = uiState.errorConfirmarClavePerfil != null,
+                    supportingText = {
+                        uiState.errorConfirmarClavePerfil?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGuardar) { Text("Actualizar Contraseña") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar") }
+        }
+    )
+}
+
 @Composable
 private fun DialogoCompromiso(
     uiState: InicioUiState,
@@ -3944,11 +4312,13 @@ private fun DialogoCompromiso(
     onConceptoChange: (String) -> Unit,
     onMontoChange: (String) -> Unit,
     onFechaChange: (String) -> Unit,
+    onToggleRecurrente: (Boolean) -> Unit,
+    onMesesRecurrenciaChange: (Int) -> Unit,
     onGuardar: () -> Unit
 ) {
-    var expandidoCliente by remember { mutableStateOf(false) }
+    var expandedClientes by remember { mutableStateOf(false) }
 
-    val clientesActivosEmpresa = remember(uiState.clientesDisponibles, uiState.vinculosUsuarioOrgs, uiState.bloqueosGlobalesApp, uiState.orgSeleccionadaId) {
+    val clientesActivos = remember(uiState.clientesDisponibles, uiState.vinculosUsuarioOrgs, uiState.bloqueosGlobalesApp, uiState.orgSeleccionadaId) {
         uiState.clientesDisponibles.filter { cliente ->
             uiState.vinculosUsuarioOrgs[cliente.id]?.contains(uiState.orgSeleccionadaId) == true &&
                     !uiState.bloqueosGlobalesApp.containsKey(cliente.id)
@@ -3957,100 +4327,149 @@ private fun DialogoCompromiso(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Emitir Cobro • ${uiState.orgSeleccionadaNombre}", fontWeight = FontWeight.Bold) },
+        title = {
+            Column {
+                Text("Registrar Cobro a Cliente")
+                Text(
+                    text = "Entidad emisora: ${uiState.orgSeleccionadaNombre}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (clientesActivosEmpresa.isEmpty()) {
+                if (clientesActivos.isEmpty()) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "No tienes clientes aprobados y activos en tu empresa para emitirles cobros. Aprueba una solicitud en 'Mi Empresa' primero.",
+                            text = "No tienes clientes activos en ${uiState.orgSeleccionadaNombre}. Agrega un cliente en 'Mi Empresa' para emitir cobros.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
                 } else {
-                    ExposedDropdownMenuBox(
-                        expanded = expandidoCliente,
-                        onExpandedChange = { expandidoCliente = !expandidoCliente }
-                    ) {
+                    Box {
                         OutlinedTextField(
-                            value = uiState.clienteSeleccionadoNombre.ifBlank { "Seleccionar cliente" },
+                            value = uiState.clienteSeleccionadoNombre,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Cliente destinatario") },
                             isError = uiState.errorClienteCompromiso != null,
-                            supportingText = {
-                                uiState.errorClienteCompromiso?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            trailingIcon = {
+                                IconButton(onClick = { expandedClientes = true }) {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
                             },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandidoCliente) },
                             modifier = Modifier
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth()
+                                .clickable { expandedClientes = true }
                         )
-                        ExposedDropdownMenu(
-                            expanded = expandidoCliente,
-                            onDismissRequest = { expandidoCliente = false }
+                        DropdownMenu(
+                            expanded = expandedClientes,
+                            onDismissRequest = { expandedClientes = false }
                         ) {
-                            clientesActivosEmpresa.forEach { cliente ->
+                            clientesActivos.forEach { cliente ->
                                 DropdownMenuItem(
-                                    text = { Text("${cliente.nombre} (${cliente.rut.ifBlank { "-" }})") },
+                                    text = { Text("${cliente.nombre} (${cliente.rut.ifBlank { cliente.correo }})") },
                                     onClick = {
                                         onSelectCliente(cliente)
-                                        expandidoCliente = false
+                                        expandedClientes = false
                                     }
                                 )
                             }
                         }
+                    }
+                    uiState.errorClienteCompromiso?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
                 OutlinedTextField(
                     value = uiState.conceptoCompromiso,
                     onValueChange = onConceptoChange,
-                    label = { Text("Concepto (ej: Gasto Común)") },
+                    label = { Text("Concepto (ej: Gasto Común, Mensualidad)") },
                     isError = uiState.errorConceptoCompromiso != null,
                     supportingText = {
                         uiState.errorConceptoCompromiso?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
                 OutlinedTextField(
                     value = uiState.montoCompromiso,
                     onValueChange = onMontoChange,
-                    label = { Text("Monto CLP (ej: 45000)") },
+                    label = { Text("Monto mensual CLP (ej: 85000)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = uiState.errorMontoCompromiso != null,
                     supportingText = {
                         uiState.errorMontoCompromiso?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
                 OutlinedTextField(
                     value = uiState.fechaCompromiso,
                     onValueChange = onFechaChange,
-                    label = { Text("Vencimiento (DD/MM/AAAA)") },
+                    label = { Text("Primer vencimiento (DD/MM/AAAA)") },
                     isError = uiState.errorFechaCompromiso != null,
                     supportingText = {
                         uiState.errorFechaCompromiso?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                HorizontalDivider()
+
+                Text(
+                    text = "Modalidad de registro:",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = uiState.esCobroRecurrenteMensual,
+                        onClick = { onToggleRecurrente(true) },
+                        label = { Text("Mensual (1 registro)") }
+                    )
+                    FilterChip(
+                        selected = !uiState.esCobroRecurrenteMensual,
+                        onClick = { onToggleRecurrente(false) },
+                        label = { Text("Pago único") }
+                    )
+                }
+
+                if (uiState.esCobroRecurrenteMensual) {
+                    Text(
+                        text = "Se registra una sola vez y programa automáticamente los cobros mensuales sin tener que re-emitirlos cada fin de mes:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(3, 6, 12).forEach { meses ->
+                            FilterChip(
+                                selected = uiState.mesesRecurrencia == meses,
+                                onClick = { onMesesRecurrenciaChange(meses) },
+                                label = { Text("$meses meses") }
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onGuardar,
-                enabled = clientesActivosEmpresa.isNotEmpty()
-            ) {
-                Text("Emitir Cobro")
+            Button(onClick = onGuardar, enabled = clientesActivos.isNotEmpty()) {
+                Text(if (uiState.esCobroRecurrenteMensual) "Registrar Plan" else "Guardar")
             }
         },
         dismissButton = {

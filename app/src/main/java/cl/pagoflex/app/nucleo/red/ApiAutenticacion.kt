@@ -8,4 +8,7 @@ import retrofit2.http.POST
 interface ApiAutenticacion {
     @POST("api/v1/autenticacion/inicio-sesion")
     suspend fun iniciarSesion(@Body request: LoginRequestDto): LoginResponseDto
+
+    @POST("api/v1/autenticacion/recuperar-clave")
+    suspend fun solicitarRecuperacionClave(@Body body: Map<String, String>)
 }

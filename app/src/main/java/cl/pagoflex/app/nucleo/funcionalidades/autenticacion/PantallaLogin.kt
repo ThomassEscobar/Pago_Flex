@@ -177,7 +177,7 @@ fun PantallaLogin(
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                Text("Crear cuenta nueva")
+                Text("Regístrate")
             }
         }
     }

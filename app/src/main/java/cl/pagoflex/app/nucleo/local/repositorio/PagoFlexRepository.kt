@@ -7,6 +7,7 @@ import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,21 +18,35 @@ class PagoFlexRepository @Inject constructor(
     private val compromisoDao: CompromisoDao
 ) {
     // Usuarios
-    suspend fun iniciarSesion(correo: String, clave: String): UsuarioEntity? =
-        usuarioDao.login(correo.trim(), clave)
+    suspend fun iniciarSesion(correo: String, clave: String): UsuarioEntity? {
+        val correoLimpio = correo.trim()
+        return usuarioDao.login(correoLimpio, clave)
+            ?: usuarioDao.observarTodos().first().find {
+                it.correo.trim().equals(correoLimpio, ignoreCase = true) && it.clave == clave
+            }
+    }
 
     suspend fun registrarUsuario(usuario: UsuarioEntity): Result<Long> = try {
-        if (usuarioDao.buscarPorCorreo(usuario.correo.trim()) != null) {
+        val correoLimpio = usuario.correo.trim()
+        val existe = usuarioDao.buscarPorCorreo(correoLimpio) != null ||
+                usuarioDao.observarTodos().first().any {
+                    it.correo.trim().equals(correoLimpio, ignoreCase = true)
+                }
+        if (existe) {
             Result.failure(Exception("El correo ya está registrado"))
         } else {
-            Result.success(usuarioDao.registrar(usuario.copy(correo = usuario.correo.trim())))
+            Result.success(usuarioDao.registrar(usuario.copy(correo = correoLimpio)))
         }
     } catch (e: Exception) {
         Result.failure(e)
     }
 
-    suspend fun recuperarClave(correo: String, nuevaClave: String): Boolean {
-        return usuarioDao.actualizarClave(correo.trim(), nuevaClave) > 0
+    suspend fun solicitarRecuperacionPorCorreo(correo: String): Boolean {
+        val correoLimpio = correo.trim()
+        return usuarioDao.buscarPorCorreo(correoLimpio) != null ||
+                usuarioDao.observarTodos().first().any {
+                    it.correo.trim().equals(correoLimpio, ignoreCase = true)
+                }
     }
 
     suspend fun actualizarUsuario(usuario: UsuarioEntity) = usuarioDao.actualizar(usuario)

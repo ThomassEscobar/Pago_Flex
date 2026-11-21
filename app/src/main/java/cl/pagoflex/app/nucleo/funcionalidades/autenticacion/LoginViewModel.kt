@@ -49,7 +49,7 @@ data class AuthUiState(
     val mensajeGlobalExito: String? = null,
     val usuarioAutenticado: UsuarioEntity? = null,
     val registroExitoso: Boolean = false,
-    val recuperacionExitosa: Boolean = false
+    val correoRecuperacionEnviado: Boolean = false
 )
 
 @HiltViewModel
@@ -196,7 +196,7 @@ class LoginViewModel @Inject constructor(
                 mensajeGlobalError = null,
                 mensajeGlobalExito = null,
                 registroExitoso = false,
-                recuperacionExitosa = false
+                correoRecuperacionEnviado = false
             )
         }
     }
@@ -337,31 +337,45 @@ class LoginViewModel @Inject constructor(
         }
     }
 
-    fun restablecerContrasena() {
+    fun enviarCorreoRecuperacion() {
         val estado = _uiState.value
         onCorreoChange(estado.correo)
-        onContrasenaChange(estado.contrasena)
-        onConfirmarContrasenaChange(estado.confirmarContrasena)
 
         val act = _uiState.value
-        if (act.errorCorreo != null || act.errorContrasena != null || act.errorConfirmarContrasena != null) return
+        if (act.errorCorreo != null) return
+
+        val correoDestino = act.correo.trim()
 
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true, mensajeGlobalError = null) }
-            val actualizado = repository.recuperarClave(act.correo.trim(), act.contrasena)
-            if (actualizado) {
-                _uiState.update {
-                    it.copy(
-                        cargando = false,
-                        recuperacionExitosa = true,
-                        mensajeGlobalExito = "Contraseña actualizada correctamente."
-                    )
+            try {
+                try {
+                    apiAutenticacion.solicitarRecuperacionClave(mapOf("correo" to correoDestino))
+                } catch (_: Exception) {
                 }
-            } else {
+
+                val existeCuenta = repository.solicitarRecuperacionPorCorreo(correoDestino)
+                if (existeCuenta) {
+                    _uiState.update {
+                        it.copy(
+                            cargando = false,
+                            correoRecuperacionEnviado = true,
+                            mensajeGlobalExito = "Se ha enviado un enlace de recuperación de contraseña a $correoDestino."
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            cargando = false,
+                            mensajeGlobalError = "No existe ninguna cuenta registrada con ese correo electrónico."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         cargando = false,
-                        mensajeGlobalError = "No existe ninguna cuenta asociada a ese correo."
+                        mensajeGlobalError = e.message ?: "Error al procesar la solicitud de recuperación."
                     )
                 }
             }

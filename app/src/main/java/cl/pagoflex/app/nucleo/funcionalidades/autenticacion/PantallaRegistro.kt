@@ -167,7 +167,7 @@ fun PantallaRegistro(
                     FilterChip(
                         selected = uiState.rolSeleccionado == rol,
                         onClick = { viewModel.onRolChange(rol) },
-                        label = { Text(if (rol == "USUARIO") "Cliente (USUARIO)" else "Ejecutivo") }
+                        label = { Text(if (rol == "USUARIO") "Cliente" else "Ejecutivo") }
                     )
                 }
             }

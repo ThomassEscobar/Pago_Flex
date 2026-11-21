@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Patterns
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,7 @@ import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
 import cl.pagoflex.app.nucleo.util.NotificadorPagoFlex
+import cl.pagoflex.app.nucleo.util.ValidadorRut
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
@@ -54,6 +57,19 @@ data class AsignacionCobro(
     val compromisoId: Int,
     val usuarioId: Int,
     val usuarioNombre: String
+)
+
+data class PlantillaCobroRecurrente(
+    val id: String,
+    val organizacionId: Int,
+    val empresaNombre: String,
+    val usuarioId: Int,
+    val usuarioNombre: String,
+    val concepto: String,
+    val monto: Double,
+    val diaVencimiento: Int,
+    val mesesProgramados: Int,
+    val fechaRegistro: String
 )
 
 data class PerfilFinancieroCliente(
@@ -108,17 +124,22 @@ data class InicioUiState(
     val filtroSoporteAdmin: String = "PENDIENTES",
     val filtroStrikesAdmin: String = "TODOS",
 
-    // Vínculos, solicitudes y gobernanza
+    // Vínculos, solicitudes, recurrencia y gobernanza
     val vinculosUsuarioOrgs: Map<Int, Set<Int>> = emptyMap(),
     val solicitudesVinculacion: List<SolicitudVinculacion> = emptyList(),
     val asignacionesCobros: Map<Int, AsignacionCobro> = emptyMap(),
+    val plantillasRecurrentes: List<PlantillaCobroRecurrente> = emptyList(),
     val bloqueosGlobalesApp: Map<Int, String> = emptyMap(),
     val empresasSuspendidas: Map<Int, String> = emptyMap(),
 
     // Soporte
     val ticketsSoporte: List<TicketSoporte> = emptyList(),
 
-    // Diálogo nuevo compromiso (Ejecutivo)
+    // Detalle expandido de compromiso y pago
+    val compromisoDetalleSeleccionado: CompromisoEntity? = null,
+    val comprobanteBorradorUri: String? = null,
+
+    // Diálogo nuevo compromiso (Ejecutivo - registro único / recurrente)
     val mostrarDialogoCompromiso: Boolean = false,
     val orgSeleccionadaId: Int = 0,
     val orgSeleccionadaNombre: String = "",
@@ -127,6 +148,8 @@ data class InicioUiState(
     val conceptoCompromiso: String = "",
     val montoCompromiso: String = "",
     val fechaCompromiso: String = "",
+    val esCobroRecurrenteMensual: Boolean = true,
+    val mesesRecurrencia: Int = 12,
     val errorClienteCompromiso: String? = null,
     val errorConceptoCompromiso: String? = null,
     val errorMontoCompromiso: String? = null,
@@ -134,6 +157,25 @@ data class InicioUiState(
 
     // Diálogo Solicitar Vinculación (Usuario)
     val mostrarDialogoVincularEmpresaUsuario: Boolean = false,
+
+    // Diálogo Registrar Nueva Empresa (Usuario)
+    val mostrarDialogoRegistrarEmpresaUsuario: Boolean = false,
+    val nuevaEmpresaNombreInput: String = "",
+    val nuevaEmpresaTipoInput: String = "Empresa",
+    val nuevaEmpresaRutInput: String = "",
+    val nuevaEmpresaCorreoInput: String = "",
+    val errorNuevaEmpresaNombre: String? = null,
+    val errorNuevaEmpresaRut: String? = null,
+    val errorNuevaEmpresaCorreo: String? = null,
+
+    // Diálogo Agregar Nuevo Cliente (Ejecutivo)
+    val mostrarDialogoAgregarClienteEjecutivo: Boolean = false,
+    val nuevoClienteNombreInput: String = "",
+    val nuevoClienteRutInput: String = "",
+    val nuevoClienteCorreoInput: String = "",
+    val errorNuevoClienteNombre: String? = null,
+    val errorNuevoClienteRut: String? = null,
+    val errorNuevoClienteCorreo: String? = null,
 
     // Diálogo Revisión Perfil Financiero (Ejecutivo)
     val perfilFinancieroEnRevision: PerfilFinancieroCliente? = null,
@@ -165,17 +207,11 @@ data class InicioUiState(
 
     // Perfil y Seguridad
     val avatarPath: String? = null,
-    val correoRespaldo: String = "",
     val mostrarDialogoFotoPerfil: Boolean = false,
     val mostrarDialogoDatosPersonales: Boolean = false,
     val nombrePerfilInput: String = "",
     val errorNombrePerfilInput: String? = null,
     val mostrarDialogoSeguridad: Boolean = false,
-    val correoPrincipalInput: String = "",
-    val errorCorreoPrincipalInput: String? = null,
-    val correoRespaldoInput: String = "",
-    val errorCorreoRespaldoInput: String? = null,
-    val expandirCambioClavePerfil: Boolean = false,
     val claveActualPerfil: String = "",
     val nuevaClavePerfil: String = "",
     val confirmarClavePerfil: String = "",
@@ -204,17 +240,34 @@ class InicioViewModel @Inject constructor(
         private const val PREFS_NAME = "pagoflex_estado_ext"
         private val FORMATO_FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-        fun calcularDiasParaVencimiento(fechaVencimiento: String): Int? {
+        fun parseFecha(fechaVencimiento: String): LocalDate? {
             return try {
-                val fecha = if (fechaVencimiento.contains("/")) {
+                if (fechaVencimiento.contains("/")) {
                     LocalDate.parse(fechaVencimiento.trim(), FORMATO_FECHA)
                 } else {
                     LocalDate.parse(fechaVencimiento.trim())
                 }
-                ChronoUnit.DAYS.between(LocalDate.now(), fecha).toInt()
             } catch (_: Exception) {
                 null
             }
+        }
+
+        fun calcularDiasParaVencimiento(fechaVencimiento: String): Int? {
+            val fecha = parseFecha(fechaVencimiento) ?: return null
+            return ChronoUnit.DAYS.between(LocalDate.now(), fecha).toInt()
+        }
+
+        fun esCompromisoExigibleAhora(compromiso: CompromisoEntity): Boolean {
+            if (compromiso.estado != "PENDIENTE" && compromiso.estado != "RECHAZADO") return false
+            val esRecurrente = compromiso.concepto.contains("Recurrente", ignoreCase = true)
+            if (!esRecurrente) return true
+            val fecha = parseFecha(compromiso.fechaVencimiento) ?: return true
+            val hoy = LocalDate.now()
+            val mesActual = YearMonth.from(hoy)
+            val mesVencimiento = YearMonth.from(fecha)
+            if (!mesVencimiento.isAfter(mesActual)) return true
+            val dias = ChronoUnit.DAYS.between(hoy, fecha).toInt()
+            return dias <= 25
         }
     }
 
@@ -240,6 +293,7 @@ class InicioViewModel @Inject constructor(
         val sp = prefs(context)
         val solicitudes = leerSolicitudesPrefs(sp)
         val asignaciones = leerAsignacionesPrefs(sp)
+        val plantillas = leerPlantillasRecurrentesPrefs(sp)
         val bloqueosApp = leerMapaIntStringPrefs(sp, "bloqueos_app")
         val empresasSusp = leerMapaIntStringPrefs(sp, "empresas_suspendidas")
         val tickets = leerTicketsPrefs(sp)
@@ -253,6 +307,9 @@ class InicioViewModel @Inject constructor(
             val userRefrescado = state.usuarioActual?.let { actual ->
                 usuarios.find { it.id == actual.id } ?: actual
             }
+            val detalleRefrescado = state.compromisoDetalleSeleccionado?.let { det ->
+                comps.find { it.id == det.id }
+            }
             state.copy(
                 usuarioActual = userRefrescado,
                 todosUsuarios = usuarios,
@@ -260,9 +317,11 @@ class InicioViewModel @Inject constructor(
                 ejecutivosDisponibles = usuarios.filter { it.rol == "EJECUTIVO" },
                 organizaciones = orgs,
                 compromisos = comps,
+                compromisoDetalleSeleccionado = detalleRefrescado,
                 solicitudesVinculacion = solicitudes,
                 vinculosUsuarioOrgs = vinculos,
                 asignacionesCobros = asignaciones,
+                plantillasRecurrentes = plantillas,
                 bloqueosGlobalesApp = bloqueosApp,
                 empresasSuspendidas = empresasSusp,
                 ticketsSoporte = tickets
@@ -384,12 +443,50 @@ class InicioViewModel @Inject constructor(
         val userId = _uiState.value.usuarioActual?.id ?: return
         val sp = prefs(context)
         val avatar = sp.getString("avatar_$userId", null)
-        val respaldo = sp.getString("respaldo_$userId", "") ?: ""
+        _uiState.update { it.copy(avatarPath = avatar) }
+    }
+
+    // ---------------------------------------------------------
+    // DETALLE EXPANDIDO DE COMPROMISO Y PAGO CON COMPROBANTE
+    // ---------------------------------------------------------
+
+    fun abrirDetalleCompromiso(compromiso: CompromisoEntity) {
         _uiState.update {
             it.copy(
-                avatarPath = avatar,
-                correoRespaldo = respaldo
+                compromisoDetalleSeleccionado = compromiso,
+                comprobanteBorradorUri = compromiso.comprobanteUri
             )
+        }
+    }
+
+    fun cerrarDetalleCompromiso() {
+        _uiState.update {
+            it.copy(
+                compromisoDetalleSeleccionado = null,
+                comprobanteBorradorUri = null
+            )
+        }
+    }
+
+    fun seleccionarComprobanteBorrador(uriString: String?) {
+        if (uriString.isNullOrBlank()) return
+        _uiState.update { it.copy(comprobanteBorradorUri = uriString) }
+    }
+
+    fun confirmarPagoConComprobante(context: Context) {
+        val state = _uiState.value
+        val compromiso = state.compromisoDetalleSeleccionado ?: return
+        val uriComprobante = state.comprobanteBorradorUri
+        if (uriComprobante.isNullOrBlank()) {
+            mostrarMensaje("Adjunta primero una foto o PDF del comprobante de pago.")
+            return
+        }
+
+        viewModelScope.launch {
+            compromisoDao.registrarComprobante(compromiso.id, "REVISION", uriComprobante)
+            cargarDesdePersistencia(context)
+            cerrarDetalleCompromiso()
+            mostrarMensaje("Pago registrado y comprobante enviado a revisión del Ejecutivo.")
         }
     }
 
@@ -459,7 +556,7 @@ class InicioViewModel @Inject constructor(
     }
 
     // ---------------------------------------------------------
-    // COMPROMISOS Y COMPROBANTES
+    // COMPROMISOS (REGISTRO ÚNICO / RECURRENTE MENSUAL)
     // ---------------------------------------------------------
 
     fun abrirDialogoNuevoCompromiso() {
@@ -488,6 +585,8 @@ class InicioViewModel @Inject constructor(
                 conceptoCompromiso = "",
                 montoCompromiso = "",
                 fechaCompromiso = LocalDate.now().plusDays(15).format(FORMATO_FECHA),
+                esCobroRecurrenteMensual = true,
+                mesesRecurrencia = 12,
                 errorClienteCompromiso = null,
                 errorConceptoCompromiso = null,
                 errorMontoCompromiso = null,
@@ -523,12 +622,20 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(fechaCompromiso = valor, errorFechaCompromiso = null) }
     }
 
+    fun onToggleCobroRecurrenteChange(recurrente: Boolean) {
+        _uiState.update { it.copy(esCobroRecurrenteMensual = recurrente) }
+    }
+
+    fun onMesesRecurrenciaChange(meses: Int) {
+        _uiState.update { it.copy(mesesRecurrencia = meses.coerceIn(2, 24)) }
+    }
+
     fun guardarCompromiso(context: Context) {
         val state = _uiState.value
         val clienteId = state.clienteSeleccionadoId
         val concepto = state.conceptoCompromiso.trim()
         val monto = state.montoCompromiso.toDoubleOrNull() ?: 0.0
-        val fecha = state.fechaCompromiso.trim()
+        val fechaInicio = parseFecha(state.fechaCompromiso.trim())
 
         var hayError = false
         if (clienteId == null) {
@@ -543,54 +650,80 @@ class InicioViewModel @Inject constructor(
             _uiState.update { it.copy(errorMontoCompromiso = "Ingresa un monto mayor a $0") }
             hayError = true
         }
-        if (calcularDiasParaVencimiento(fecha) == null) {
+        if (fechaInicio == null) {
             _uiState.update { it.copy(errorFechaCompromiso = "Usa formato DD/MM/AAAA válido") }
             hayError = true
         }
-        if (hayError || clienteId == null) return
+        if (hayError || clienteId == null || fechaInicio == null) return
+
+        val totalCuotas = if (state.esCobroRecurrenteMensual) state.mesesRecurrencia else 1
 
         viewModelScope.launch {
-            val nuevo = CompromisoEntity(
-                organizacionId = state.orgSeleccionadaId,
-                empresaNombre = state.orgSeleccionadaNombre,
-                concepto = concepto,
-                monto = monto,
-                fechaVencimiento = fecha,
-                estado = "PENDIENTE",
-                comprobanteUri = null
-            )
-            compromisoDao.insertar(nuevo)
+            val sp = prefs(context)
+            val asigMap = leerAsignacionesPrefs(sp).toMutableMap()
 
-            val compsActualizados: List<CompromisoEntity> = compromisoDao.observarTodos().first()
-            val creado = compsActualizados.maxByOrNull { it.id }
+            for (indice in 0 until totalCuotas) {
+                val fechaCuota = fechaInicio.plusMonths(indice.toLong()).format(FORMATO_FECHA)
+                val conceptoCuota = if (state.esCobroRecurrenteMensual) {
+                    "$concepto (Mes ${indice + 1}/$totalCuotas • Recurrente)"
+                } else {
+                    concepto
+                }
 
-            if (creado != null) {
-                val sp = prefs(context)
-                val asigMap = leerAsignacionesPrefs(sp).toMutableMap()
-                asigMap[creado.id] = AsignacionCobro(
-                    compromisoId = creado.id,
-                    usuarioId = clienteId,
-                    usuarioNombre = state.clienteSeleccionadoNombre
+                val nuevo = CompromisoEntity(
+                    organizacionId = state.orgSeleccionadaId,
+                    empresaNombre = state.orgSeleccionadaNombre,
+                    concepto = conceptoCuota,
+                    monto = monto,
+                    fechaVencimiento = fechaCuota,
+                    estado = "PENDIENTE",
+                    comprobanteUri = null
                 )
-                guardarAsignacionesPrefs(sp, asigMap)
+                compromisoDao.insertar(nuevo)
+
+                val compsActualizados: List<CompromisoEntity> = compromisoDao.observarTodos().first()
+                val creado = compsActualizados.maxByOrNull { it.id }
+                if (creado != null) {
+                    asigMap[creado.id] = AsignacionCobro(
+                        compromisoId = creado.id,
+                        usuarioId = clienteId,
+                        usuarioNombre = state.clienteSeleccionadoNombre
+                    )
+                }
+            }
+            guardarAsignacionesPrefs(sp, asigMap)
+
+            if (state.esCobroRecurrenteMensual) {
+                val plantillas = leerPlantillasRecurrentesPrefs(sp).toMutableList()
+                plantillas.add(
+                    0,
+                    PlantillaCobroRecurrente(
+                        id = "REC-${System.currentTimeMillis().toString().takeLast(4)}",
+                        organizacionId = state.orgSeleccionadaId,
+                        empresaNombre = state.orgSeleccionadaNombre,
+                        usuarioId = clienteId,
+                        usuarioNombre = state.clienteSeleccionadoNombre,
+                        concepto = concepto,
+                        monto = monto,
+                        diaVencimiento = fechaInicio.dayOfMonth,
+                        mesesProgramados = totalCuotas,
+                        fechaRegistro = LocalDate.now().format(FORMATO_FECHA)
+                    )
+                )
+                guardarPlantillasRecurrentesPrefs(sp, plantillas)
             }
 
             cargarDesdePersistencia(context)
             _uiState.update {
                 it.copy(
                     mostrarDialogoCompromiso = false,
-                    mensajeSnackbar = "Cobro emitido a ${state.clienteSeleccionadoNombre}"
+                    mensajeSnackbar = if (state.esCobroRecurrenteMensual) {
+                        "Cobro recurrente registrado una sola vez ($totalCuotas meses) para ${state.clienteSeleccionadoNombre}."
+                    } else {
+                        "Cobro emitido a ${state.clienteSeleccionadoNombre}."
+                    }
                 )
             }
-        }
-    }
-
-    fun registrarComprobante(context: Context, compromisoId: Int, uriString: String?) {
-        if (uriString.isNullOrBlank()) return
-        viewModelScope.launch {
-            compromisoDao.registrarComprobante(compromisoId, "REVISION", uriString)
-            cargarDesdePersistencia(context)
-            mostrarMensaje("Comprobante enviado a revisión del Ejecutivo.")
         }
     }
 
@@ -601,6 +734,7 @@ class InicioViewModel @Inject constructor(
             compromisoDao.cambiarEstado(compromisoId, nuevoEstado)
 
             cargarDesdePersistencia(context)
+            cerrarDetalleCompromiso()
             NotificadorPagoFlex.mostrarNotificacion(
                 context,
                 if (aprobado) "Pago aprobado" else "Comprobante rechazado",
@@ -611,7 +745,7 @@ class InicioViewModel @Inject constructor(
     }
 
     // ---------------------------------------------------------
-    // VINCULACIÓN Y REVISIÓN DE PERFIL FINANCIERO (EJECUTIVO / CLIENTE)
+    // VINCULACIÓN Y REGISTRO DE EMPRESAS (CLIENTE)
     // ---------------------------------------------------------
 
     fun abrirDialogoVincularEmpresaUsuario() {
@@ -620,6 +754,103 @@ class InicioViewModel @Inject constructor(
 
     fun cerrarDialogoVincularEmpresaUsuario() {
         _uiState.update { it.copy(mostrarDialogoVincularEmpresaUsuario = false) }
+    }
+
+    fun abrirDialogoRegistrarEmpresaUsuario() {
+        _uiState.update {
+            it.copy(
+                mostrarDialogoRegistrarEmpresaUsuario = true,
+                nuevaEmpresaNombreInput = "",
+                nuevaEmpresaTipoInput = "Empresa",
+                nuevaEmpresaRutInput = "",
+                nuevaEmpresaCorreoInput = "",
+                errorNuevaEmpresaNombre = null,
+                errorNuevaEmpresaRut = null,
+                errorNuevaEmpresaCorreo = null
+            )
+        }
+    }
+
+    fun cerrarDialogoRegistrarEmpresaUsuario() {
+        _uiState.update { it.copy(mostrarDialogoRegistrarEmpresaUsuario = false) }
+    }
+
+    fun onNuevaEmpresaNombreChange(valor: String) {
+        _uiState.update { it.copy(nuevaEmpresaNombreInput = valor, errorNuevaEmpresaNombre = null) }
+    }
+
+    fun onNuevaEmpresaTipoChange(tipo: String) {
+        _uiState.update { it.copy(nuevaEmpresaTipoInput = tipo) }
+    }
+
+    fun onNuevaEmpresaRutChange(valor: String) {
+        val formateado = ValidadorRut.formatearRut(valor)
+        _uiState.update { it.copy(nuevaEmpresaRutInput = formateado, errorNuevaEmpresaRut = null) }
+    }
+
+    fun onNuevaEmpresaCorreoChange(valor: String) {
+        _uiState.update { it.copy(nuevaEmpresaCorreoInput = valor, errorNuevaEmpresaCorreo = null) }
+    }
+
+    fun registrarNuevaEmpresaUsuario(context: Context) {
+        val state = _uiState.value
+        val user = state.usuarioActual ?: return
+        val nombre = state.nuevaEmpresaNombreInput.trim()
+        val tipo = state.nuevaEmpresaTipoInput
+        val rutFormateado = ValidadorRut.formatearRut(state.nuevaEmpresaRutInput)
+        val correo = state.nuevaEmpresaCorreoInput.trim()
+
+        var hayError = false
+        if (nombre.length < 3) {
+            _uiState.update { it.copy(errorNuevaEmpresaNombre = "Ingresa el nombre de la empresa (mín. 3 car.)") }
+            hayError = true
+        }
+        if (rutFormateado.isBlank() || !ValidadorRut.esRutValido(rutFormateado)) {
+            _uiState.update { it.copy(errorNuevaEmpresaRut = "RUT de empresa inválido (ej: 76.123.456-0)") }
+            hayError = true
+        } else if (state.organizaciones.any { ValidadorRut.formatearRut(it.rut).equals(rutFormateado, ignoreCase = true) }) {
+            _uiState.update { it.copy(errorNuevaEmpresaRut = "Ya existe una empresa registrada con ese RUT") }
+            hayError = true
+        }
+        if (correo.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correo).matches()) {
+            _uiState.update { it.copy(errorNuevaEmpresaCorreo = "Ingresa un correo institucional válido") }
+            hayError = true
+        }
+        if (hayError) return
+
+        viewModelScope.launch {
+            organizacionDao.insertar(
+                OrganizacionEntity(
+                    nombre = nombre,
+                    tipo = tipo,
+                    rut = rutFormateado,
+                    correoContacto = correo
+                )
+            )
+            val orgsActualizadas = organizacionDao.observarTodas().first()
+            val creada = orgsActualizadas.find {
+                ValidadorRut.formatearRut(it.rut).equals(rutFormateado, ignoreCase = true)
+            } ?: orgsActualizadas.maxByOrNull { it.id }
+
+            if (creada != null) {
+                val sp = prefs(context)
+                val lista = leerSolicitudesPrefs(sp).toMutableList()
+                lista.removeAll { it.usuarioId == user.id && it.organizacionId == creada.id }
+                lista.add(
+                    SolicitudVinculacion(
+                        usuarioId = user.id,
+                        organizacionId = creada.id,
+                        estado = EstadoVinculo.APROBADA,
+                        fechaSolicitud = LocalDate.now().format(FORMATO_FECHA)
+                    )
+                )
+                guardarSolicitudesPrefs(sp, lista)
+            }
+
+            cargarDesdePersistencia(context)
+            cerrarDialogoRegistrarEmpresaUsuario()
+            mostrarMensaje("Empresa '$nombre' registrada y asociada correctamente.")
+        }
     }
 
     fun solicitarVinculacionEmpresa(context: Context, usuarioId: Int, organizacionId: Int) {
@@ -651,32 +882,122 @@ class InicioViewModel @Inject constructor(
         }
     }
 
-    fun cancelarODesvincularEmpresaUsuario(context: Context, usuarioId: Int, organizacionId: Int) {
-        val state = _uiState.value
-        val solicitud = state.solicitudesVinculacion.find {
-            it.usuarioId == usuarioId && it.organizacionId == organizacionId
-        } ?: return
+    // ---------------------------------------------------------
+    // AGREGAR CLIENTES Y REVISIÓN FINANCIERA (EJECUTIVO)
+    // ---------------------------------------------------------
 
-        if (solicitud.estado == EstadoVinculo.APROBADA) {
-            val deuda = state.compromisos.count { comp ->
-                comp.organizacionId == organizacionId &&
-                        comp.estado != "PAGADO" &&
-                        (state.asignacionesCobros[comp.id] == null ||
-                                state.asignacionesCobros[comp.id]?.usuarioId == usuarioId)
-            }
-            if (deuda > 0) {
-                mostrarMensaje("No puedes desvincularte mientras tengas $deuda compromiso(s) sin pagar.")
-                return
-            }
+    fun abrirDialogoAgregarClienteEjecutivo() {
+        _uiState.update {
+            it.copy(
+                mostrarDialogoAgregarClienteEjecutivo = true,
+                nuevoClienteNombreInput = "",
+                nuevoClienteRutInput = "",
+                nuevoClienteCorreoInput = "",
+                errorNuevoClienteNombre = null,
+                errorNuevoClienteRut = null,
+                errorNuevoClienteCorreo = null
+            )
+        }
+    }
+
+    fun cerrarDialogoAgregarClienteEjecutivo() {
+        _uiState.update { it.copy(mostrarDialogoAgregarClienteEjecutivo = false) }
+    }
+
+    fun onNuevoClienteNombreChange(valor: String) {
+        _uiState.update { it.copy(nuevoClienteNombreInput = valor, errorNuevoClienteNombre = null) }
+    }
+
+    fun onNuevoClienteRutChange(valor: String) {
+        val formateado = ValidadorRut.formatearRut(valor)
+        _uiState.update { it.copy(nuevoClienteRutInput = formateado, errorNuevoClienteRut = null) }
+    }
+
+    fun onNuevoClienteCorreoChange(valor: String) {
+        _uiState.update { it.copy(nuevoClienteCorreoInput = valor, errorNuevoClienteCorreo = null) }
+    }
+
+    fun agregarClienteAEmpresaEjecutivo(context: Context) {
+        val state = _uiState.value
+        val ejecutivo = state.usuarioActual ?: return
+        val miOrgId = ejecutivo.empresaId ?: return
+
+        if (state.empresasSuspendidas.containsKey(miOrgId)) {
+            mostrarMensaje("Tu empresa está suspendida y no puede agregar nuevos clientes.")
+            return
         }
 
+        val nombre = state.nuevoClienteNombreInput.trim()
+        val rutFormateado = ValidadorRut.formatearRut(state.nuevoClienteRutInput)
+        val correo = state.nuevoClienteCorreoInput.trim()
+
+        var hayError = false
+        if (nombre.length < 3) {
+            _uiState.update { it.copy(errorNuevoClienteNombre = "Ingresa el nombre completo (mín. 3 car.)") }
+            hayError = true
+        }
+        if (rutFormateado.isBlank() || !ValidadorRut.esRutValido(rutFormateado)) {
+            _uiState.update { it.copy(errorNuevoClienteRut = "RUT inválido (ej: 12.345.678-9)") }
+            hayError = true
+        }
+        if (correo.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correo).matches()) {
+            _uiState.update { it.copy(errorNuevoClienteCorreo = "Ingresa un correo electrónico válido") }
+            hayError = true
+        }
+        if (hayError) return
+
         viewModelScope.launch {
+            val usuariosActuales = usuarioDao.observarTodos().first()
+            val existente = usuariosActuales.find {
+                it.correo.trim().equals(correo, ignoreCase = true) ||
+                        ValidadorRut.formatearRut(it.rut).equals(rutFormateado, ignoreCase = true)
+            }
+
+            if (existente != null && existente.rol != "USUARIO") {
+                _uiState.update {
+                    it.copy(errorNuevoClienteCorreo = "El correo o RUT pertenece a una cuenta ${existente.rol}, no a un Cliente.")
+                }
+                return@launch
+            }
+
+            val clienteId: Int = if (existente != null) {
+                existente.id
+            } else {
+                usuarioDao.registrar(
+                    UsuarioEntity(
+                        nombre = nombre,
+                        correo = correo,
+                        clave = "123456",
+                        rol = "USUARIO",
+                        rut = rutFormateado
+                    )
+                )
+                val refrescados = usuarioDao.observarTodos().first()
+                refrescados.find { it.correo.trim().equals(correo, ignoreCase = true) }?.id ?: return@launch
+            }
+
             val sp = prefs(context)
             val lista = leerSolicitudesPrefs(sp).toMutableList()
-            lista.removeAll { it.usuarioId == usuarioId && it.organizacionId == organizacionId }
+            lista.removeAll { it.usuarioId == clienteId && it.organizacionId == miOrgId }
+            lista.add(
+                SolicitudVinculacion(
+                    usuarioId = clienteId,
+                    organizacionId = miOrgId,
+                    estado = EstadoVinculo.APROBADA,
+                    fechaSolicitud = LocalDate.now().format(FORMATO_FECHA)
+                )
+            )
             guardarSolicitudesPrefs(sp, lista)
+
             cargarDesdePersistencia(context)
-            mostrarMensaje("Vínculo eliminado correctamente.")
+            cerrarDialogoAgregarClienteEjecutivo()
+            mostrarMensaje(
+                if (existente != null) {
+                    "Cliente ${existente.nombre} vinculado a tu empresa."
+                } else {
+                    "Cliente $nombre creado y vinculado (clave inicial: 123456)."
+                }
+            )
         }
     }
 
@@ -1091,7 +1412,7 @@ class InicioViewModel @Inject constructor(
     }
 
     // ---------------------------------------------------------
-    // PERFIL, FOTO Y SEGURIDAD
+    // PERFIL, FOTO Y SEGURIDAD (AUTENTICACIÓN Y CONTRASEÑA)
     // ---------------------------------------------------------
 
     fun abrirDialogoFotoPerfil() {
@@ -1183,16 +1504,10 @@ class InicioViewModel @Inject constructor(
     }
 
     fun abrirDialogoSeguridad() {
-        val state = _uiState.value
-        val user = state.usuarioActual ?: return
+        if (_uiState.value.usuarioActual == null) return
         _uiState.update {
             it.copy(
                 mostrarDialogoSeguridad = true,
-                correoPrincipalInput = user.correo,
-                errorCorreoPrincipalInput = null,
-                correoRespaldoInput = state.correoRespaldo,
-                errorCorreoRespaldoInput = null,
-                expandirCambioClavePerfil = false,
                 claveActualPerfil = "",
                 nuevaClavePerfil = "",
                 confirmarClavePerfil = "",
@@ -1207,38 +1522,6 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(mostrarDialogoSeguridad = false) }
     }
 
-    fun onCorreoPrincipalInputChange(valor: String) {
-        _uiState.update { it.copy(correoPrincipalInput = valor, errorCorreoPrincipalInput = null) }
-    }
-
-    fun onCorreoRespaldoInputChange(valor: String) {
-        _uiState.update { it.copy(correoRespaldoInput = valor, errorCorreoRespaldoInput = null) }
-    }
-
-    fun eliminarCorreoRespaldo(context: Context) {
-        val userId = _uiState.value.usuarioActual?.id ?: return
-        prefs(context).edit().remove("respaldo_$userId").apply()
-        _uiState.update {
-            it.copy(
-                correoRespaldo = "",
-                correoRespaldoInput = "",
-                errorCorreoRespaldoInput = null,
-                mensajeSnackbar = "Correo de respaldo eliminado."
-            )
-        }
-    }
-
-    fun onToggleExpandirCambioClave(expandir: Boolean) {
-        _uiState.update {
-            it.copy(
-                expandirCambioClavePerfil = expandir,
-                errorClaveActualPerfil = null,
-                errorClavePerfil = null,
-                errorConfirmarClavePerfil = null
-            )
-        }
-    }
-
     fun onClaveActualPerfilChange(valor: String) {
         _uiState.update { it.copy(claveActualPerfil = valor, errorClaveActualPerfil = null) }
     }
@@ -1251,59 +1534,44 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(confirmarClavePerfil = valor, errorConfirmarClavePerfil = null) }
     }
 
-    fun guardarSeguridadCuenta(context: Context) {
+    fun actualizarContrasenaSegura() {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
-        val correoNuevo = state.correoPrincipalInput.trim()
-        val respaldoNuevo = state.correoRespaldoInput.trim()
-        val cambiaCorreo = correoNuevo != user.correo
-        val cambiaClave = state.expandirCambioClavePerfil
 
         var hayError = false
-        if (!correoNuevo.contains("@") || correoNuevo.length < 5) {
-            _uiState.update { it.copy(errorCorreoPrincipalInput = "Ingresa un correo principal válido") }
+        if (state.claveActualPerfil.isBlank()) {
+            _uiState.update { it.copy(errorClaveActualPerfil = "Ingresa tu contraseña actual") }
             hayError = true
         }
-        if (respaldoNuevo.isNotEmpty() && (!respaldoNuevo.contains("@") || respaldoNuevo == correoNuevo)) {
-            _uiState.update { it.copy(errorCorreoRespaldoInput = "Debe ser un correo válido y distinto al principal") }
+        if (state.nuevaClavePerfil.length < 6) {
+            _uiState.update { it.copy(errorClavePerfil = "La nueva contraseña debe tener al menos 6 caracteres") }
+            hayError = true
+        } else if (state.nuevaClavePerfil == state.claveActualPerfil) {
+            _uiState.update { it.copy(errorClavePerfil = "La nueva contraseña debe ser distinta a la actual") }
             hayError = true
         }
-        if (cambiaClave) {
-            if (state.nuevaClavePerfil.length < 6) {
-                _uiState.update { it.copy(errorClavePerfil = "Mínimo 6 caracteres") }
-                hayError = true
-            }
-            if (state.nuevaClavePerfil != state.confirmarClavePerfil) {
-                _uiState.update { it.copy(errorConfirmarClavePerfil = "Las contraseñas no coinciden") }
-                hayError = true
-            }
+        if (state.nuevaClavePerfil != state.confirmarClavePerfil) {
+            _uiState.update { it.copy(errorConfirmarClavePerfil = "Las contraseñas no coinciden") }
+            hayError = true
         }
         if (hayError) return
 
         viewModelScope.launch {
-            if (cambiaCorreo || cambiaClave) {
-                val valido = usuarioDao.login(user.correo, state.claveActualPerfil) != null
-                if (!valido) {
-                    _uiState.update { it.copy(errorClaveActualPerfil = "La contraseña actual no coincide") }
-                    return@launch
-                }
+            val valido = user.clave == state.claveActualPerfil ||
+                    usuarioDao.login(user.correo, state.claveActualPerfil) != null
+            if (!valido) {
+                _uiState.update { it.copy(errorClaveActualPerfil = "La contraseña actual es incorrecta") }
+                return@launch
             }
 
-            if (cambiaCorreo) {
-                usuarioDao.actualizar(user.copy(correo = correoNuevo))
-            }
-            if (cambiaClave) {
-                usuarioDao.actualizarClave(correoNuevo, state.nuevaClavePerfil)
-            }
-            val userRefrescado = usuarioDao.observarUsuario(user.id).first() ?: user.copy(correo = correoNuevo)
-            prefs(context).edit().putString("respaldo_${user.id}", respaldoNuevo).apply()
+            usuarioDao.actualizarClave(user.correo, state.nuevaClavePerfil)
+            val userRefrescado = usuarioDao.observarUsuario(user.id).first() ?: user.copy(clave = state.nuevaClavePerfil)
 
             _uiState.update {
                 it.copy(
                     usuarioActual = userRefrescado,
-                    correoRespaldo = respaldoNuevo,
                     mostrarDialogoSeguridad = false,
-                    mensajeSnackbar = "Configuración de seguridad guardada."
+                    mensajeSnackbar = "Contraseña actualizada de forma segura."
                 )
             }
         }
@@ -1463,6 +1731,49 @@ class InicioViewModel @Inject constructor(
             })
         }
         sp.edit().putString("asignaciones_cobros", arr.toString()).apply()
+    }
+
+    private fun leerPlantillasRecurrentesPrefs(sp: android.content.SharedPreferences): List<PlantillaCobroRecurrente> {
+        val raw = sp.getString("plantillas_recurrentes", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                PlantillaCobroRecurrente(
+                    id = obj.getString("id"),
+                    organizacionId = obj.getInt("organizacionId"),
+                    empresaNombre = obj.getString("empresaNombre"),
+                    usuarioId = obj.getInt("usuarioId"),
+                    usuarioNombre = obj.getString("usuarioNombre"),
+                    concepto = obj.getString("concepto"),
+                    monto = obj.getDouble("monto"),
+                    diaVencimiento = obj.getInt("diaVencimiento"),
+                    mesesProgramados = obj.getInt("mesesProgramados"),
+                    fechaRegistro = obj.getString("fechaRegistro")
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun guardarPlantillasRecurrentesPrefs(sp: android.content.SharedPreferences, lista: List<PlantillaCobroRecurrente>) {
+        val arr = JSONArray()
+        lista.forEach { p ->
+            arr.put(JSONObject().apply {
+                put("id", p.id)
+                put("organizacionId", p.organizacionId)
+                put("empresaNombre", p.empresaNombre)
+                put("usuarioId", p.usuarioId)
+                put("usuarioNombre", p.usuarioNombre)
+                put("concepto", p.concepto)
+                put("monto", p.monto)
+                put("diaVencimiento", p.diaVencimiento)
+                put("mesesProgramados", p.mesesProgramados)
+                put("fechaRegistro", p.fechaRegistro)
+            })
+        }
+        sp.edit().putString("plantillas_recurrentes", arr.toString()).apply()
     }
 
     private fun leerMapaIntStringPrefs(sp: android.content.SharedPreferences, key: String): Map<Int, String> {
