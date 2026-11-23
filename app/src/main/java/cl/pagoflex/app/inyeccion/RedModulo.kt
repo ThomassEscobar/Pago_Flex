@@ -3,6 +3,7 @@ package cl.pagoflex.app.inyeccion
 import cl.pagoflex.app.BuildConfig
 import cl.pagoflex.app.nucleo.red.ApiAutenticacion
 import cl.pagoflex.app.nucleo.red.ApiCompromisos
+import cl.pagoflex.app.nucleo.red.InterceptorAuth
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
@@ -28,12 +29,13 @@ object RedModulo {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideOkHttpClient(interceptorAuth: InterceptorAuth): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
+            .addInterceptor(interceptorAuth) // <--- AGREGAMOS EL INTERCEPTOR DEL TOKEN
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -43,7 +45,7 @@ object RedModulo {
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit {
         return Retrofit.Builder()
-            .baseUrl(BuildConfig.BASE_URL)
+            .baseUrl(BuildConfig.BASE_URL) // Asegúrate de que BuildConfig.BASE_URL sea http://10.0.2.2:8080/
             .client(okHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
@@ -54,6 +56,7 @@ object RedModulo {
     fun provideApiAutenticacion(retrofit: Retrofit): ApiAutenticacion {
         return retrofit.create(ApiAutenticacion::class.java)
     }
+
     @Provides
     @Singleton
     fun provideApiCompromisos(retrofit: Retrofit): ApiCompromisos {
