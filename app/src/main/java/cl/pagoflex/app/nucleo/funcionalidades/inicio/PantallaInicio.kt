@@ -152,8 +152,19 @@ fun PantallaInicio(
         if (esEjecutivo) uiState.organizaciones.find { it.id == userActual?.empresaId } else null
     }
     val empresaEjecutivoSuspendida = miEmpresaEjecutivo?.let { uiState.empresasSuspendidas[it.id] }
-    val ticketsPendientesCount = remember(uiState.ticketsSoporte) {
-        uiState.ticketsSoporte.count { it.estado == "PENDIENTE" }
+    val ticketsPendientesCount = remember(uiState.ticketsSoporte, rolActual, userActual) {
+        when (rolActual) {
+            "ADMIN" -> uiState.ticketsSoporte.count {
+                it.estado == "PENDIENTE" && it.destino == "PAGOFLEX"
+            }
+            "EJECUTIVO" -> uiState.ticketsSoporte.count {
+                it.estado == "PENDIENTE" && it.destino == "EJECUTIVO" &&
+                        it.empresaId == userActual?.empresaId
+            }
+            else -> uiState.ticketsSoporte.count {
+                it.estado == "PENDIENTE" && it.usuarioId == userActual?.id
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -167,7 +178,6 @@ fun PantallaInicio(
     LaunchedEffect(uiState.usuarioActual?.id) {
         if (uiState.usuarioActual != null) {
             viewModel.cargarDatosExtraPerfil(context)
-            viewModel.inicializarEntorno(context)
         }
     }
 
@@ -365,9 +375,29 @@ fun PantallaInicio(
                         icon = { Icon(Icons.Default.Home, contentDescription = null) },
                         label = { Text(if (esEjecutivo) "Mi Empresa" else "Empresas") }
                     )
+                    // El ejecutivo tiene bandeja de soporte: recibe los tickets de sus clientes
+                    if (esEjecutivo) {
+                        NavigationBarItem(
+                            selected = tabSeleccionado == 2,
+                            onClick = { tabSeleccionado = 2 },
+                            icon = {
+                                BadgedBox(
+                                    badge = {
+                                        if (ticketsPendientesCount > 0) {
+                                            Badge { Text(ticketsPendientesCount.toString()) }
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Email, contentDescription = null)
+                                }
+                            },
+                            label = { Text("Soporte") }
+                        )
+                    }
+                    val indicePerfil = if (esEjecutivo) 3 else 2
                     NavigationBarItem(
-                        selected = tabSeleccionado == 2,
-                        onClick = { tabSeleccionado = 2 },
+                        selected = tabSeleccionado == indicePerfil,
+                        onClick = { tabSeleccionado = indicePerfil },
                         icon = { Icon(Icons.Default.Person, contentDescription = null) },
                         label = { Text("Perfil") }
                     )
@@ -407,8 +437,12 @@ fun PantallaInicio(
                     )
                     2 -> VistaAdminSoporte(
                         uiState = uiState,
+                        titulo = "Mesa de Ayuda PagoFlex",
+                        subtitulo = "Reportes enviados por los ejecutivos de las empresas",
+                        // La administración solo atiende lo que va dirigido a PagoFlex
+                        tickets = uiState.ticketsSoporte.filter { it.destino == "PAGOFLEX" },
                         onFiltroChange = { viewModel.onFiltroSoporteAdminChange(it) },
-                        onResponderTicket = { viewModel.abrirDialogoResponderTicketAdmin(it) }
+                        onResponderTicket = { viewModel.abrirDialogoResponderTicket(it) }
                     )
                     3 -> VistaPerfil(
                         uiState = uiState,
@@ -457,19 +491,34 @@ fun PantallaInicio(
                             }
                         )
                     }
-                    2 -> VistaPerfil(
-                        uiState = uiState,
-                        strikesPropios = userActual?.let { viewModel.calcularStrikesCliente(it.id).first } ?: 0,
-                        onCambiarFotoPerfil = { viewModel.abrirDialogoFotoPerfil() },
-                        onAbrirDatosPersonales = { viewModel.abrirDialogoDatosPersonales() },
-                        onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
-                        onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
-                        onAvisoColorFuturo = {
-                            viewModel.mostrarMensaje("Personalización de colores del tema disponible en la etapa visual final.")
-                        },
-                        onExportarCsv = { viewModel.exportarReporteCsv(context) },
-                        onCerrarSesion = onCerrarSesion
-                    )
+                    2, 3 -> when {
+                        // Bandeja del ejecutivo: tickets que le envían sus clientes
+                        tabSeleccionado == 2 && esEjecutivo -> VistaAdminSoporte(
+                            uiState = uiState,
+                            titulo = "Soporte de mis clientes",
+                            subtitulo = "Tickets enviados por los clientes de " +
+                                    (miEmpresaEjecutivo?.nombre ?: "tu empresa"),
+                            tickets = uiState.ticketsSoporte.filter { ticket ->
+                                ticket.destino == "EJECUTIVO" &&
+                                        ticket.empresaId == miEmpresaEjecutivo?.id
+                            },
+                            onFiltroChange = { viewModel.onFiltroSoporteAdminChange(it) },
+                            onResponderTicket = { viewModel.abrirDialogoResponderTicket(it) }
+                        )
+                        else -> VistaPerfil(
+                            uiState = uiState,
+                            strikesPropios = userActual?.let { viewModel.calcularStrikesCliente(it.id).first } ?: 0,
+                            onCambiarFotoPerfil = { viewModel.abrirDialogoFotoPerfil() },
+                            onAbrirDatosPersonales = { viewModel.abrirDialogoDatosPersonales() },
+                            onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
+                            onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
+                            onAvisoColorFuturo = {
+                                viewModel.mostrarMensaje("Personalización de colores del tema disponible en la etapa visual final.")
+                            },
+                            onExportarCsv = { viewModel.exportarReporteCsv(context) },
+                            onCerrarSesion = onCerrarSesion
+                        )
+                    }
                 }
             }
         }
@@ -628,8 +677,8 @@ fun PantallaInicio(
                 respuestaInput = uiState.respuestaTicketAdminInput,
                 errorRespuesta = uiState.errorRespuestaTicketAdmin,
                 onRespuestaChange = { viewModel.onRespuestaTicketAdminChange(it) },
-                onConfirmar = { viewModel.resolverTicketSoporteAdmin(context) },
-                onDismiss = { viewModel.cerrarDialogoResponderTicketAdmin() }
+                onConfirmar = { viewModel.resolverTicketSoporte(context) },
+                onDismiss = { viewModel.cerrarDialogoResponderTicket() }
             )
         }
 
@@ -1349,14 +1398,17 @@ private fun VistaAdminPlataforma(
 @Composable
 private fun VistaAdminSoporte(
     uiState: InicioUiState,
+    titulo: String = "Mesa de Ayuda y Soporte",
+    subtitulo: String = "Mensajes y reportes de la plataforma",
+    tickets: List<TicketSoporte> = uiState.ticketsSoporte,
     onFiltroChange: (String) -> Unit,
     onResponderTicket: (TicketSoporte) -> Unit
 ) {
-    val ticketsFiltrados = remember(uiState.ticketsSoporte, uiState.filtroSoporteAdmin) {
+    val ticketsFiltrados = remember(tickets, uiState.filtroSoporteAdmin) {
         when (uiState.filtroSoporteAdmin) {
-            "PENDIENTES" -> uiState.ticketsSoporte.filter { it.estado == "PENDIENTE" }
-            "RESUELTOS" -> uiState.ticketsSoporte.filter { it.estado == "RESUELTO" }
-            else -> uiState.ticketsSoporte
+            "PENDIENTES" -> tickets.filter { it.estado == "PENDIENTE" }
+            "RESUELTOS" -> tickets.filter { it.estado == "RESUELTO" }
+            else -> tickets
         }
     }
 
@@ -1370,12 +1422,12 @@ private fun VistaAdminSoporte(
         item {
             Column {
                 Text(
-                    text = "Mesa de Ayuda y Soporte (${ticketsFiltrados.size})",
+                    text = "$titulo (${ticketsFiltrados.size})",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Mensajes y reportes enviados por Ejecutivos y Clientes de la plataforma",
+                    text = subtitulo,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1481,7 +1533,10 @@ private fun VistaAdminSoporte(
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
-                                        text = "Respuesta Administración (${ticket.fechaRespuesta ?: ""}):",
+                                        text = if (ticket.destino == "EJECUTIVO")
+                                            "Respuesta del ejecutivo (${ticket.fechaRespuesta ?: ""}):"
+                                        else
+                                            "Respuesta Administración (${ticket.fechaRespuesta ?: ""}):",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -2919,7 +2974,8 @@ private fun VistaPerfil(
     val subtituloSoporte = when {
         misTickets.any { it.estado == "RESUELTO" } -> "${misTickets.size} consulta(s) • Ver respuestas"
         misTickets.isNotEmpty() -> "${misTickets.size} consulta(s) en revisión"
-        else -> "Reportar problema o contactar soporte"
+        user?.rol == "EJECUTIVO" -> "Reportar un problema a PagoFlex"
+        else -> "Contactar a tu ejecutivo"
     }
 
     Column(
@@ -3521,7 +3577,10 @@ private fun DialogoSoporteUsuario(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Envía un mensaje directo al Administrador de la plataforma o revisa las respuestas a tus consultas.",
+                    text = if (user?.rol == "EJECUTIVO")
+                        "Envía un reporte a la administración de PagoFlex y revisa las respuestas a tus casos."
+                    else
+                        "Envía un mensaje al ejecutivo de tu empresa y revisa las respuestas a tus consultas.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3572,7 +3631,10 @@ private fun DialogoSoporteUsuario(
                     onClick = onEnviar,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Enviar Mensaje a Administración")
+                    Text(
+                        if (user?.rol == "EJECUTIVO") "Enviar Reporte a PagoFlex"
+                        else "Enviar Mensaje a mi Ejecutivo"
+                    )
                 }
 
                 if (misTickets.isNotEmpty()) {

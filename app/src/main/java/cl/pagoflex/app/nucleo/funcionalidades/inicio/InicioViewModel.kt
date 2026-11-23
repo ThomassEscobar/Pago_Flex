@@ -10,10 +10,15 @@ import androidx.core.content.FileProvider
 import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cl.pagoflex.app.nucleo.almacen.AlmacenSesion
+import cl.pagoflex.app.nucleo.almacen.SesionUsuario
 import cl.pagoflex.app.nucleo.dto.CompromisoDto
+import cl.pagoflex.app.nucleo.dto.OrganizacionDto
+import cl.pagoflex.app.nucleo.dto.UsuarioDto
 import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
+import cl.pagoflex.app.nucleo.red.ApiAutenticacion
 import cl.pagoflex.app.nucleo.red.ApiCompromisos
 import cl.pagoflex.app.nucleo.util.NotificadorPagoFlex
 import cl.pagoflex.app.nucleo.util.ValidadorRut
@@ -22,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,7 +47,26 @@ data class SolicitudVinculacion(val usuarioId: Int, val organizacionId: Int, val
 data class AsignacionCobro(val compromisoId: Int, val usuarioId: Int, val usuarioNombre: String)
 data class PlantillaCobroRecurrente(val id: String, val organizacionId: Int, val empresaNombre: String, val usuarioId: Int, val usuarioNombre: String, val concepto: String, val monto: Double, val diaVencimiento: Int, val mesesProgramados: Int, val fechaRegistro: String)
 data class PerfilFinancieroCliente(val cliente: UsuarioEntity, val solicitud: SolicitudVinculacion, val strikesAcumulados: Int, val detalleStrikes: List<String>, val porcentajeCumplimiento: Int, val pagados: Int, val montoTotalPagado: Int, val pendientes: Int, val enRevision: Int, val compromisosPorVencerCount: Int, val rechazados: Int, val montoDeudaActual: Int, val nivelRiesgo: String, val bloqueadoEnEstaEmpresa: Boolean)
-data class TicketSoporte(val id: String, val usuarioId: Int, val usuarioNombre: String, val usuarioRol: String, val usuarioRut: String, val empresaNombre: String?, val categoria: String, val asunto: String, val mensaje: String, val fechaCreacion: String, val estado: String, val respuestaAdmin: String? = null, val fechaRespuesta: String? = null)
+data class TicketSoporte(
+    val id: String,
+    val usuarioId: Int,
+    val usuarioNombre: String,
+    val usuarioRol: String,
+    val usuarioRut: String,
+    val empresaNombre: String?,
+    val categoria: String,
+    val asunto: String,
+    val mensaje: String,
+    val fechaCreacion: String,
+    val estado: String,
+    // PAGOFLEX: lo atiende la administración (tickets de ejecutivos).
+    // EJECUTIVO: lo atiende el ejecutivo de la empresa (tickets de clientes).
+    val destino: String = "PAGOFLEX",
+    // Empresa del cliente que abre el ticket, para enrutarlo a su ejecutivo.
+    val empresaId: Int? = null,
+    val respuestaAdmin: String? = null,
+    val fechaRespuesta: String? = null
+)
 
 data class InicioUiState(
     val cargando: Boolean = true,
@@ -147,7 +172,9 @@ data class InicioUiState(
 
 @HiltViewModel
 class InicioViewModel @Inject constructor(
-    private val apiCompromisos: ApiCompromisos
+    private val apiCompromisos: ApiCompromisos,
+    private val apiAutenticacion: ApiAutenticacion,
+    private val almacenSesion: AlmacenSesion
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InicioUiState())
@@ -193,57 +220,59 @@ class InicioViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true) }
             try {
-                // 1. Traemos los datos reales del Backend
-                val compromisosRemotos = apiCompromisos.listarCompromisos()
+                // 1. Identidad real: sale de la sesión que se guardó en el login
+                val sesion = almacenSesion.sesion.first()
 
-                // 2. Mapeamos los DTOs a las entidades que usa la UI
-                val compromisosLocales = compromisosRemotos.map { dto ->
-                    CompromisoEntity(
-                        id = dto.id.hashCode(), // Convertimos el UUID string a Int
-                        organizacionId = dto.organizacion?.id?.hashCode() ?: 0,
-                        empresaNombre = dto.organizacion?.nombre ?: "PagoFlex",
-                        concepto = dto.descripcion,
-                        monto = dto.montoClp.toDouble(),
-                        fechaVencimiento = dto.fechaVencimiento,
-                        estado = dto.estado,
-                        comprobanteUri = null
-                    )
+                // 2. Datos del backend (si un endpoint falla, la pantalla no se cae)
+                val compromisosRemotos = intentar { apiCompromisos.listarCompromisos() }.orEmpty()
+                val cuentas = intentar { apiAutenticacion.listarUsuarios() }.orEmpty()
+
+                // 3. Mapeo a las entidades que usa la UI
+                val compromisosLocales = compromisosRemotos.map { it.aCompromisoLocal() }
+                val usuarios = cuentas.map { it.aUsuarioEntity() }
+
+                // Si el listado de cuentas no trae al usuario de la sesión, lo construimos con lo guardado
+                val usuarioActual = usuarios.firstOrNull { it.id == sesion?.id?.hashCode() }
+                    ?: sesion?.aUsuarioEntity()
+                    ?: usuarios.firstOrNull { it.rol == "USUARIO" }
+
+                val organizaciones = compromisosRemotos
+                    .map { it.organizacion.aOrganizacionEntity() }
+                    .distinctBy { it.id }
+
+                // 4. Vínculos usuario -> empresas, deducidos de sus compromisos y de su empresa asignada
+                val vinculos = mutableMapOf<Int, MutableSet<Int>>()
+                compromisosLocales.forEach { compromiso ->
+                    if (compromiso.usuarioId != 0 && compromiso.organizacionId != 0) {
+                        vinculos.getOrPut(compromiso.usuarioId) { mutableSetOf() }
+                            .add(compromiso.organizacionId)
+                    }
+                }
+                usuarios.forEach { usuario ->
+                    usuario.empresaId?.let { empresa ->
+                        vinculos.getOrPut(usuario.id) { mutableSetOf() }.add(empresa)
+                    }
                 }
 
-                // 3. Simulamos el usuario y las organizaciones basándonos en la data real
-                val usuarioReal = UsuarioEntity(
-                    id = "11111111-1111-1111-1111-111111111111".hashCode(),
-                    nombre = "Ana Pérez",
-                    correo = "ana@pagoflex.cl",
-                    clave = "",
-                    rol = "USUARIO",
-                    rut = "11.111.111-1",
-                    empresaId = null
-                )
+                // 5. Titular de cada compromiso: permite mostrar el cliente real en las
+                //    vistas de ejecutivo y de administración
+                val asignaciones = compromisosLocales.mapNotNull { compromiso ->
+                    val titular = usuarios.firstOrNull { it.id == compromiso.usuarioId }
+                        ?: return@mapNotNull null
+                    compromiso.id to AsignacionCobro(compromiso.id, titular.id, titular.nombre)
+                }.toMap()
 
-                val organizacionesReales = compromisosRemotos.mapNotNull { dto ->
-                    dto.organizacion?.let { org ->
-                        OrganizacionEntity(
-                            id = org.id.hashCode(),
-                            nombre = org.nombre,
-                            tipo = org.tipo ?: "INMOBILIARIA",
-                            rut = "76.123.456-7",
-                            correoContacto = "contacto@empresa.cl"
-                        )
-                    }
-                }.distinctBy { it.id }
-
-                // 4. Actualizamos el estado puro
                 _uiState.update { state ->
                     state.copy(
                         cargando = false,
-                        usuarioActual = usuarioReal,
-                        todosUsuarios = listOf(usuarioReal),
-                        clientesDisponibles = listOf(usuarioReal),
+                        usuarioActual = usuarioActual,
+                        todosUsuarios = usuarios,
+                        clientesDisponibles = usuarios.filter { it.rol == "USUARIO" },
+                        ejecutivosDisponibles = usuarios.filter { it.rol == "EJECUTIVO" },
                         compromisos = compromisosLocales,
-                        organizaciones = organizacionesReales,
-                        // Creamos un vínculo simulado para que el cliente vea sus compromisos
-                        vinculosUsuarioOrgs = mapOf(usuarioReal.id to organizacionesReales.map { it.id }.toSet())
+                        organizaciones = organizaciones,
+                        vinculosUsuarioOrgs = vinculos,
+                        asignacionesCobros = asignaciones
                     )
                 }
 
@@ -255,6 +284,54 @@ class InicioViewModel @Inject constructor(
             }
         }
     }
+
+    /** Ejecuta una llamada de red y devuelve null si falla, para no romper la pantalla. */
+    private suspend fun <T> intentar(bloque: suspend () -> T): T? = try {
+        bloque()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+
+    private fun CompromisoDto.aCompromisoLocal() = CompromisoEntity(
+        id = id.hashCode(),
+        organizacionId = organizacion.id.hashCode(),
+        empresaNombre = organizacion.nombre,
+        concepto = descripcion,
+        monto = montoClp.toDouble(),
+        fechaVencimiento = fechaVencimiento,
+        estado = estado,
+        comprobanteUri = null,
+        usuarioId = usuarioId?.hashCode() ?: 0
+    )
+
+    private fun OrganizacionDto.aOrganizacionEntity() = OrganizacionEntity(
+        id = id.hashCode(),
+        nombre = nombre,
+        tipo = tipo,
+        rut = rut ?: "",
+        correoContacto = "contacto@" + nombre.lowercase().replace(" ", "")
+    )
+
+    private fun UsuarioDto.aUsuarioEntity() = UsuarioEntity(
+        id = id.hashCode(),
+        nombre = nombreCompleto,
+        correo = correo,
+        clave = "",
+        rol = rol ?: "USUARIO",
+        rut = rut ?: "",
+        empresaId = empresaId?.hashCode()
+    )
+
+    private fun SesionUsuario.aUsuarioEntity() = UsuarioEntity(
+        id = id.hashCode(),
+        nombre = nombre,
+        correo = correo,
+        clave = "",
+        rol = rol,
+        rut = rut,
+        empresaId = empresaId?.hashCode()
+    )
 
     fun cargarUsuario(usuarioId: Int) {
         // Como ya tenemos el usuario en memoria, solo nos aseguramos de que esté seleccionado
@@ -630,21 +707,88 @@ class InicioViewModel @Inject constructor(
     fun enviarTicketSoporte(context: Context) {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
-        val nuevoTicket = TicketSoporte("TCK-${(100..999).random()}", user.id, user.nombre, user.rol, user.rut, null, state.categoriaSoporteInput, state.asuntoSoporteInput, state.mensajeSoporteInput, LocalDate.now().format(FORMATO_FECHA), "PENDIENTE")
 
-        _uiState.update { it.copy(ticketsSoporte = listOf(nuevoTicket) + it.ticketsSoporte, mostrarDialogoSoporteUsuario = false, asuntoSoporteInput = "", mensajeSoporteInput = "") }
-        mostrarMensaje("Ticket enviado.")
+        if (state.asuntoSoporteInput.isBlank()) {
+            _uiState.update { it.copy(errorAsuntoSoporte = "Escribe un asunto") }
+            return
+        }
+        if (state.mensajeSoporteInput.isBlank()) {
+            _uiState.update { it.copy(errorMensajeSoporte = "Describe brevemente tu problema") }
+            return
+        }
+
+        val esEjecutivo = user.rol == "EJECUTIVO"
+
+        // Enrutamiento: el ejecutivo reporta a PagoFlex; el cliente reporta a su ejecutivo
+        val destino = if (esEjecutivo) "PAGOFLEX" else "EJECUTIVO"
+
+        val empresaDelCliente = if (destino == "EJECUTIVO") {
+            state.organizaciones.firstOrNull { org ->
+                state.vinculosUsuarioOrgs[user.id]?.contains(org.id) == true
+            }
+        } else {
+            state.organizaciones.firstOrNull { it.id == user.empresaId }
+        }
+
+        val nuevoTicket = TicketSoporte(
+            id = "TCK-${(100..999).random()}",
+            usuarioId = user.id,
+            usuarioNombre = user.nombre,
+            usuarioRol = user.rol,
+            usuarioRut = user.rut,
+            empresaNombre = empresaDelCliente?.nombre,
+            categoria = state.categoriaSoporteInput,
+            asunto = state.asuntoSoporteInput,
+            mensaje = state.mensajeSoporteInput,
+            fechaCreacion = LocalDate.now().format(FORMATO_FECHA),
+            estado = "PENDIENTE",
+            destino = destino,
+            empresaId = empresaDelCliente?.id
+        )
+
+        _uiState.update {
+            it.copy(
+                ticketsSoporte = listOf(nuevoTicket) + it.ticketsSoporte,
+                mostrarDialogoSoporteUsuario = false,
+                asuntoSoporteInput = "",
+                mensajeSoporteInput = "",
+                errorAsuntoSoporte = null,
+                errorMensajeSoporte = null
+            )
+        }
+        mostrarMensaje(
+            if (esEjecutivo) "Ticket enviado a PagoFlex."
+            else "Ticket enviado a tu ejecutivo."
+        )
     }
 
-    fun abrirDialogoResponderTicketAdmin(ticket: TicketSoporte) { _uiState.update { it.copy(ticketEnRevisionAdmin = ticket) } }
-    fun cerrarDialogoResponderTicketAdmin() { _uiState.update { it.copy(ticketEnRevisionAdmin = null) } }
+    fun abrirDialogoResponderTicket(ticket: TicketSoporte) { _uiState.update { it.copy(ticketEnRevisionAdmin = ticket) } }
+    fun cerrarDialogoResponderTicket() { _uiState.update { it.copy(ticketEnRevisionAdmin = null) } }
     fun onRespuestaTicketAdminChange(texto: String) { _uiState.update { it.copy(respuestaTicketAdminInput = texto) } }
 
-    fun resolverTicketSoporteAdmin(context: Context) {
+    /** Responde y cierra un ticket. Lo usa tanto la administración como el ejecutivo. */
+    fun resolverTicketSoporte(context: Context) {
         val state = _uiState.value
         val ticket = state.ticketEnRevisionAdmin ?: return
-        val actualizados = state.ticketsSoporte.map { if (it.id == ticket.id) it.copy(estado = "RESUELTO", respuestaAdmin = state.respuestaTicketAdminInput) else it }
-        _uiState.update { it.copy(ticketsSoporte = actualizados, ticketEnRevisionAdmin = null) }
+        val respuesta = state.respuestaTicketAdminInput.ifBlank { "Ticket atendido." }
+        val actualizados = state.ticketsSoporte.map {
+            if (it.id == ticket.id) {
+                it.copy(
+                    estado = "RESUELTO",
+                    respuestaAdmin = respuesta,
+                    fechaRespuesta = LocalDate.now().format(FORMATO_FECHA)
+                )
+            } else {
+                it
+            }
+        }
+        _uiState.update {
+            it.copy(
+                ticketsSoporte = actualizados,
+                ticketEnRevisionAdmin = null,
+                respuestaTicketAdminInput = ""
+            )
+        }
         mostrarMensaje("Ticket resuelto.")
     }
 

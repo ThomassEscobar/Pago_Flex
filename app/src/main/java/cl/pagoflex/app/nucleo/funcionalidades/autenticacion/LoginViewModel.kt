@@ -4,6 +4,7 @@ import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cl.pagoflex.app.nucleo.almacen.AlmacenSesion
+import cl.pagoflex.app.nucleo.almacen.SesionUsuario
 import cl.pagoflex.app.nucleo.red.ApiAutenticacion
 import cl.pagoflex.app.nucleo.dto.LoginRequestDto
 import cl.pagoflex.app.nucleo.dto.OlvideRequestDto
@@ -79,7 +80,17 @@ class LoginViewModel @Inject constructor(
             _uiState.update { it.copy(cargando = true, mensajeGlobalError = null) }
             try {
                 val respuesta = apiAutenticacion.iniciarSesion(LoginRequestDto(estado.correo.trim(), estado.contrasena))
-                almacenSesion.guardarSesion(respuesta.tokenAcceso, respuesta.usuario.nombreCompleto)
+                almacenSesion.guardarSesion(
+                    token = respuesta.tokenAcceso,
+                    usuario = SesionUsuario(
+                        id = respuesta.usuario.id,
+                        nombre = respuesta.usuario.nombreCompleto,
+                        correo = respuesta.usuario.correo,
+                        rol = respuesta.usuario.rol ?: "USUARIO",
+                        rut = respuesta.usuario.rut ?: "",
+                        empresaId = respuesta.usuario.empresaId
+                    )
+                )
                 _uiState.update { it.copy(cargando = false, loginExitoso = true) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(cargando = false, mensajeGlobalError = "Credenciales incorrectas") }
