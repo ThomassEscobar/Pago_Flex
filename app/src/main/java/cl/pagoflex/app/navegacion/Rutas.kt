@@ -13,11 +13,11 @@ import kotlinx.serialization.Serializable
 @Serializable data class RutaRestablecer(val correo: String)
 
 // Principal
-@Serializable data class RutaInicio(val usuarioId: Int = 1)
+@Serializable object RutaInicio // <--- Ahora es un object simple (sin usuarioId)
 @Serializable object RutaListaCompromisos
 @Serializable data class RutaDetalleCompromiso(val id: String)
 @Serializable data class RutaPago(val compromisoId: String)
 @Serializable data class RutaComprobante(val pagoId: String)
 @Serializable object RutaHistorial
 @Serializable object RutaNotificaciones
-@Serializable object RutaPerfilrializable object RutaPerfil
+@Serializable object RutaPerfil // <--- Corregido el error de tipeo

@@ -1,5 +1,6 @@
 package cl.pagoflex.app.nucleo.dto
 
+
 import com.squareup.moshi.Json
 
 data class LoginResponseDto(

@@ -143,9 +143,11 @@ fun PantallaRecuperarClave(
                 uiState.mensajeGlobalError?.let {
                     Text(text = it, color = MaterialTheme.colorScheme.error)
                 }
-
                 Button(
-                    onClick = { viewModel.enviarCorreoRecuperacion() },
+                    onClick = {
+                        // Le pasamos el correo que el usuario escribió en el input
+                        viewModel.enviarCorreoRecuperacion(uiState.correo)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),

@@ -1,5 +1,6 @@
 package cl.pagoflex.app.nucleo.funcionalidades.autenticacion
 
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,20 +20,20 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
 
 @Composable
 fun PantallaLogin(
-    onLoginExitoso: (UsuarioEntity) -> Unit,
+    onLoginExitoso: () -> Unit, // <-- Ya no recibe UsuarioEntity, solo avisa que fue exitoso
     onIrARegistro: () -> Unit,
     onIrARecuperarClave: () -> Unit,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(uiState.usuarioAutenticado) {
-        uiState.usuarioAutenticado?.let { usuario ->
-            onLoginExitoso(usuario)
+    // <-- Escuchamos el estado 'loginExitoso' del nuevo ViewModel
+    LaunchedEffect(uiState.loginExitoso) {
+        if (uiState.loginExitoso) {
+            onLoginExitoso()
         }
     }
 
@@ -43,6 +44,7 @@ fun PantallaLogin(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // --- LOGO E IDENTIDAD DE MARCA ---
         Box(
             modifier = Modifier
                 .size(72.dp)
@@ -73,6 +75,7 @@ fun PantallaLogin(
             modifier = Modifier.padding(bottom = 28.dp)
         )
 
+        // --- CAMPO DE CORREO ---
         OutlinedTextField(
             value = uiState.correo,
             onValueChange = { viewModel.onCorreoChange(it) },
@@ -95,6 +98,7 @@ fun PantallaLogin(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // --- CAMPO DE CONTRASEÑA ---
         OutlinedTextField(
             value = uiState.contrasena,
             onValueChange = { viewModel.onContrasenaChange(it) },
@@ -124,6 +128,7 @@ fun PantallaLogin(
             enabled = !uiState.cargando
         )
 
+        // --- BOTÓN OLVIDÉ MI CONTRASEÑA ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
@@ -136,6 +141,7 @@ fun PantallaLogin(
             }
         }
 
+        // --- MENSAJE DE ERROR GLOBAL ---
         AnimatedVisibility(visible = uiState.mensajeGlobalError != null) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -154,6 +160,7 @@ fun PantallaLogin(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // --- BOTONES DE ACCIÓN ---
         if (uiState.cargando) {
             CircularProgressIndicator()
         } else {

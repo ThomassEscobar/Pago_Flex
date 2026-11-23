@@ -12,29 +12,44 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import cl.pagoflex.app.nucleo.almacen.AlmacenSesion
 import cl.pagoflex.app.nucleo.diseno.tema.TemaPagoflex
 import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+// ViewModel para verificar si hay sesión guardada
+@HiltViewModel
+class SesionViewModel @Inject constructor(
+    private val almacenSesion: AlmacenSesion
+) : ViewModel() {
+    var cargando by mutableStateOf(true)
+        private set
+    var estaLogueado by mutableStateOf(false)
+        private set
+
+    init {
+        viewModelScope.launch {
+            val token = almacenSesion.tokenSesion.first()
+            estaLogueado = !token.isNullOrBlank()
+            cargando = false
+        }
+    }
+}
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -44,6 +59,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             TemaPagoflex {
                 val context = LocalContext.current
+                val sesionViewModel: SesionViewModel = hiltViewModel()
+
                 val permisosObligatorios = remember {
                     buildList {
                         add(Manifest.permission.CAMERA)
@@ -58,17 +75,13 @@ class MainActivity : ComponentActivity() {
 
                 fun tienePermisosCriticos(): Boolean {
                     val camaraOk = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.CAMERA
+                        context, Manifest.permission.CAMERA
                     ) == PackageManager.PERMISSION_GRANTED
                     val notifOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
+                            context, Manifest.permission.POST_NOTIFICATIONS
                         ) == PackageManager.PERMISSION_GRANTED
-                    } else {
-                        true
-                    }
+                    } else true
                     return camaraOk && notifOk
                 }
 
@@ -87,20 +100,24 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .systemBarsPadding()
+                    modifier = Modifier.fillMaxSize().systemBarsPadding()
                 ) {
-                    NavegacionRaiz()
+                    // Si está cargando el DataStore, mostramos un spinner
+                    if (sesionViewModel.cargando) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        // Navegación con Auto-Login
+                        NavegacionRaiz(estaLogueado = sesionViewModel.estaLogueado)
+                    }
 
+                    // Diálogo de permisos
                     if (mostrarDialogoPermisos) {
                         AlertDialog(
                             onDismissRequest = { },
                             title = {
-                                Text(
-                                    text = "Permisos obligatorios requeridos",
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text(text = "Permisos obligatorios requeridos", fontWeight = FontWeight.Bold)
                             },
                             text = {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

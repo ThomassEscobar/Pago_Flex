@@ -27,8 +27,7 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            // ¡OJO AQUÍ! Cambiamos el 8080 por el 8081
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8081/\"")
+            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8080/\"")
         }
         release {
             isMinifyEnabled = true
@@ -69,6 +68,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))
