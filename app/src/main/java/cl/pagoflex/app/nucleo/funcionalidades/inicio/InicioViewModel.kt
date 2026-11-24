@@ -688,10 +688,22 @@ class InicioViewModel @Inject constructor(
     fun cerrarDialogoGestionarUsuarioAdmin() { _uiState.update { it.copy(usuarioEditandoAdmin = null) } }
     fun onMotivoBloqueoAppChange(texto: String) { _uiState.update { it.copy(motivoBloqueoAppInput = texto) } }
 
+
     fun toggleBloqueoGlobalUsuarioApp(context: Context, usuario: UsuarioEntity, bloquear: Boolean) {
         val state = _uiState.value
+        // NUEVO: protección de administradores y de la propia cuenta
+        if (usuario.rol == "ADMIN" || usuario.id == state.usuarioActual?.id) {
+            _uiState.update { it.copy(usuarioEditandoAdmin = null) }
+            mostrarMensaje("No puedes suspender a otro administrador.")
+            return
+        }
+        // NUEVO: motivo obligatorio al bloquear (el estado ya tiene errorMotivoBloqueoApp)
+        if (bloquear && state.motivoBloqueoAppInput.trim().length < 5) {
+            _uiState.update { it.copy(errorMotivoBloqueoApp = "Indica el motivo (mín. 5 caracteres)") }
+            return
+        }
         val nuevosBloqueos = state.bloqueosGlobalesApp.toMutableMap()
-        if (bloquear) nuevosBloqueos[usuario.id] = state.motivoBloqueoAppInput else nuevosBloqueos.remove(usuario.id)
+        if (bloquear) nuevosBloqueos[usuario.id] = state.motivoBloqueoAppInput.trim() else nuevosBloqueos.remove(usuario.id)
         _uiState.update { it.copy(bloqueosGlobalesApp = nuevosBloqueos, usuarioEditandoAdmin = null) }
     }
 
