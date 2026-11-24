@@ -5,7 +5,6 @@ import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cl.pagoflex.app.nucleo.dto.LoginRequestDto
-import cl.pagoflex.app.nucleo.local.dao.OrganizacionDao
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
 import cl.pagoflex.app.nucleo.local.repositorio.PagoFlexRepository
@@ -56,8 +55,7 @@ data class AuthUiState(
 class LoginViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val apiAutenticacion: ApiAutenticacion,
-    private val repository: PagoFlexRepository,
-    private val organizacionDao: OrganizacionDao
+    private val repository: PagoFlexRepository
 ) : ViewModel() {
 
     companion object {
@@ -91,7 +89,8 @@ class LoginViewModel @Inject constructor(
     fun onCorreoChange(valor: String) {
         val error = when {
             valor.isBlank() -> "El correo es obligatorio"
-            !PatternsCompat.EMAIL_ADDRESS.matcher(valor.trim()).matches() -> "Formato de correo inválido (ej: usuario@dominio.cl)"
+            !PatternsCompat.EMAIL_ADDRESS.matcher(valor.trim()).matches() ->
+                "Formato de correo inválido (ej: usuario@dominio.cl)"
             else -> null
         }
         _uiState.update { it.copy(correo = valor, errorCorreo = error, mensajeGlobalError = null) }
@@ -190,9 +189,21 @@ class LoginViewModel @Inject constructor(
         _uiState.update { it.copy(mostrarContrasena = !it.mostrarContrasena) }
     }
 
+    fun consumirSesionIniciada() {
+        _uiState.update { it.copy(usuarioAutenticado = null) }
+    }
+
     fun limpiarMensajes() {
         _uiState.update {
             it.copy(
+                errorCorreo = null,
+                errorContrasena = null,
+                errorNombre = null,
+                errorRut = null,
+                errorConfirmarContrasena = null,
+                errorEmpresaSeleccionada = null,
+                errorRutEmpresa = null,
+                errorCorreoEmpresa = null,
                 mensajeGlobalError = null,
                 mensajeGlobalExito = null,
                 registroExitoso = false,
@@ -210,10 +221,12 @@ class LoginViewModel @Inject constructor(
         if (actualizado.errorCorreo != null || actualizado.errorContrasena != null) return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(cargando = true, mensajeGlobalError = null) }
+            _uiState.update { it.copy(cargando = true, mensajeGlobalError = null, mensajeGlobalExito = null) }
             try {
                 try {
-                    apiAutenticacion.iniciarSesion(LoginRequestDto(actualizado.correo.trim(), actualizado.contrasena))
+                    apiAutenticacion.iniciarSesion(
+                        LoginRequestDto(actualizado.correo.trim(), actualizado.contrasena)
+                    )
                 } catch (_: Exception) {
                 }
 
@@ -240,7 +253,9 @@ class LoginViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(cargando = false, mensajeGlobalError = e.message ?: "Error al iniciar sesión") }
+                _uiState.update {
+                    it.copy(cargando = false, mensajeGlobalError = e.message ?: "Error al iniciar sesión")
+                }
             }
         }
     }

@@ -133,4 +133,5 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation("org.json:json:20240303")
+    implementation("androidx.core:core-splashscreen:1.0.1")
 }

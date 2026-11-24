@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -44,15 +46,20 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cl.pagoflex.app.R
+import cl.pagoflex.app.nucleo.diseno.tema.*
 import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
@@ -93,6 +100,194 @@ private fun rememberAvatarBitmap(path: String?): ImageBitmap? {
             }
         }
     }
+}
+
+// =========================================================================
+// COMPONENTES DE DISEÑO ACCESIBLES (WCAG 2.1 AA + MULTIMODAL)
+// =========================================================================
+
+@Composable
+private fun BadgeEstadoAccesible(
+    texto: String,
+    icono: ImageVector,
+    colorFondo: Color,
+    colorContenido: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = colorFondo,
+        shape = RoundedCornerShape(DimensPagoflex.RadioChip),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icono,
+                contentDescription = null,
+                tint = colorContenido,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = texto,
+                color = colorContenido,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun TarjetaResumenHero(
+    titulo: String,
+    valorPrincipal: String,
+    subtitulo: String?,
+    icono: ImageVector,
+    gradiente: Brush,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+        elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionDestacada),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(gradiente)
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = titulo,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Surface(
+                        color = Color.White.copy(alpha = 0.16f),
+                        shape = CircleShape,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = icono,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = valorPrincipal,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!subtitulo.isNullOrBlank()) {
+                    Text(
+                        text = subtitulo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.88f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChipFiltroAccesible(
+    etiqueta: String,
+    seleccionado: Boolean,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = seleccionado,
+        onClick = onClick,
+        modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo),
+        shape = RoundedCornerShape(DimensPagoflex.RadioChip),
+        leadingIcon = if (seleccionado) {
+            {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else null,
+        label = {
+            Text(
+                text = etiqueta,
+                fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium
+            )
+        }
+    )
+}
+
+@Composable
+private fun CampoBusquedaEstilizado(
+    valor: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = valor,
+        onValueChange = onValueChange,
+        placeholder = {
+            Text(
+                text = placeholder,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        trailingIcon = {
+            if (valor.isNotBlank()) {
+                IconButton(
+                    onClick = { onValueChange("") },
+                    modifier = Modifier.size(DimensPagoflex.TamanoToqueMinimo)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Limpiar búsqueda"
+                    )
+                }
+            }
+        },
+        shape = RoundedCornerShape(DimensPagoflex.RadioInput),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface
+        ),
+        singleLine = true,
+        modifier = modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -143,6 +338,12 @@ fun PantallaInicio(
     var tabSeleccionado by remember { mutableIntStateOf(0) }
 
     var fotoTemporalUri by remember { mutableStateOf<Uri?>(null) }
+
+    val logoAppBitmap = remember(context) {
+        ContextCompat.getDrawable(context, R.mipmap.ic_launcher_round)
+            ?.toBitmap(width = 128, height = 128)
+            ?.asImageBitmap()
+    }
 
     val userActual = uiState.usuarioActual
     val rolActual = userActual?.rol ?: "USUARIO"
@@ -272,117 +473,208 @@ fun PantallaInicio(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
                 title = {
-                    Column {
-                        Text("PagoFlex", fontWeight = FontWeight.Bold)
-                        userActual?.let { user ->
-                            val subtituloTop = when (user.rol) {
-                                "EJECUTIVO" -> "${user.nombre} • Ejecutivo ${miEmpresaEjecutivo?.nombre ?: "(Sin empresa)"}"
-                                "ADMIN" -> "${user.nombre} • Admin Plataforma"
-                                else -> "${user.nombre} (Cliente)"
-                            }
-                            Text(
-                                text = subtituloTop,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (logoAppBitmap != null) {
+                            Image(
+                                bitmap = logoAppBitmap,
+                                contentDescription = "Logo PagoFlex",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant,
+                                        RoundedCornerShape(10.dp)
+                                    )
                             )
+                        } else {
+                            Surface(
+                                color = AzulPrimario,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "PF",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = "PagoFlex",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            userActual?.let { user ->
+                                val subtituloTop = when (user.rol) {
+                                    "EJECUTIVO" -> "${user.nombre} • Ejecutivo ${miEmpresaEjecutivo?.nombre ?: "(Sin empresa)"}"
+                                    "ADMIN" -> "${user.nombre} • Admin Plataforma"
+                                    else -> "${user.nombre} • Cliente"
+                                }
+                                Text(
+                                    text = subtituloTop,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.exportarReporteCsv(context) }) {
+                    IconButton(
+                        onClick = { viewModel.exportarReporteCsv(context) },
+                        modifier = Modifier.size(DimensPagoflex.TamanoToqueMinimo)
+                    ) {
                         Icon(
-                            Icons.Default.Share,
-                            contentDescription = "Exportar informe CSV"
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Exportar informe CSV",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    IconButton(onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            permisoNotifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            NotificadorPagoFlex.mostrarNotificacion(
-                                context,
-                                "Recordatorio PagoFlex",
-                                "Revisa tus compromisos, vencimientos y solicitudes en PagoFlex."
-                            )
-                        }
-                    }) {
-                        Icon(Icons.Default.Notifications, contentDescription = "Notificaciones")
+                    IconButton(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                permisoNotifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                NotificadorPagoFlex.mostrarNotificacion(
+                                    context,
+                                    "Recordatorio PagoFlex",
+                                    "Revisa tus compromisos, vencimientos y solicitudes en PagoFlex."
+                                )
+                            }
+                        },
+                        modifier = Modifier.size(DimensPagoflex.TamanoToqueMinimo)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Activar o probar notificaciones",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 4.dp
+            ) {
+                val itemColors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (esAdmin) {
                     NavigationBarItem(
                         selected = tabSeleccionado == 0,
                         onClick = { tabSeleccionado = 0 },
+                        colors = itemColors,
                         icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                        label = { Text("Plataforma") }
+                        label = { Text("Plataforma", fontWeight = FontWeight.SemiBold) }
                     )
                     NavigationBarItem(
                         selected = tabSeleccionado == 1,
                         onClick = { tabSeleccionado = 1 },
+                        colors = itemColors,
                         icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                        label = { Text("Empresas") }
+                        label = { Text("Empresas", fontWeight = FontWeight.SemiBold) }
                     )
                     NavigationBarItem(
                         selected = tabSeleccionado == 2,
                         onClick = { tabSeleccionado = 2 },
+                        colors = itemColors,
                         icon = {
                             BadgedBox(
                                 badge = {
                                     if (ticketsPendientesCount > 0) {
-                                        Badge { Text(ticketsPendientesCount.toString()) }
+                                        Badge(containerColor = RojoError, contentColor = Color.White) {
+                                            Text(ticketsPendientesCount.toString())
+                                        }
                                     }
                                 }
                             ) {
                                 Icon(Icons.Default.Email, contentDescription = null)
                             }
                         },
-                        label = { Text("Soporte") }
+                        label = { Text("Soporte", fontWeight = FontWeight.SemiBold) }
                     )
                     NavigationBarItem(
                         selected = tabSeleccionado == 3,
                         onClick = { tabSeleccionado = 3 },
+                        colors = itemColors,
                         icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        label = { Text("Perfil") }
+                        label = { Text("Perfil", fontWeight = FontWeight.SemiBold) }
                     )
                 } else {
                     NavigationBarItem(
                         selected = tabSeleccionado == 0,
                         onClick = { tabSeleccionado = 0 },
+                        colors = itemColors,
                         icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                        label = { Text("Compromisos") }
+                        label = { Text("Compromisos", fontWeight = FontWeight.SemiBold) }
                     )
                     NavigationBarItem(
                         selected = tabSeleccionado == 1,
                         onClick = { tabSeleccionado = 1 },
+                        colors = itemColors,
                         icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                        label = { Text(if (esEjecutivo) "Mi Empresa" else "Empresas") }
+                        label = {
+                            Text(
+                                text = if (esEjecutivo) "Mi Empresa" else "Empresas",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     )
                     NavigationBarItem(
                         selected = tabSeleccionado == 2,
                         onClick = { tabSeleccionado = 2 },
+                        colors = itemColors,
                         icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        label = { Text("Perfil") }
+                        label = { Text("Perfil", fontWeight = FontWeight.SemiBold) }
                     )
                 }
             }
         },
         floatingActionButton = {
             if (tabSeleccionado == 0 && esEjecutivo && miEmpresaEjecutivo != null && empresaEjecutivoSuspendida == null) {
-                FloatingActionButton(onClick = { viewModel.abrirDialogoNuevoCompromiso() }) {
-                    Icon(Icons.Default.Add, contentDescription = "Registrar Cobro")
-                }
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.abrirDialogoNuevoCompromiso() },
+                    containerColor = VerdeExito,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Nuevo Cobro", fontWeight = FontWeight.Bold) }
+                )
             } else if (tabSeleccionado == 1 && !esAdmin && !esEjecutivo) {
-                FloatingActionButton(onClick = { viewModel.abrirDialogoVincularEmpresaUsuario() }) {
-                    Icon(Icons.Default.Add, contentDescription = "Solicitar Vinculación")
-                }
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.abrirDialogoVincularEmpresaUsuario() },
+                    containerColor = AzulPrimario,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Vincular Empresa", fontWeight = FontWeight.Bold) }
+                )
             }
         }
     ) { padding ->
@@ -418,7 +710,7 @@ fun PantallaInicio(
                         onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
                         onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
                         onAvisoColorFuturo = {
-                            viewModel.mostrarMensaje("Personalización de colores del tema disponible en la etapa visual final.")
+                            viewModel.mostrarMensaje("Tema accesible WCAG 2.1 AA activo con soporte automático para modo claro y oscuro.")
                         },
                         onExportarCsv = { viewModel.exportarReporteCsv(context) },
                         onCerrarSesion = onCerrarSesion
@@ -465,7 +757,7 @@ fun PantallaInicio(
                         onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
                         onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
                         onAvisoColorFuturo = {
-                            viewModel.mostrarMensaje("Personalización de colores del tema disponible en la etapa visual final.")
+                            viewModel.mostrarMensaje("Tema accesible WCAG 2.1 AA activo con soporte automático para modo claro y oscuro.")
                         },
                         onExportarCsv = { viewModel.exportarReporteCsv(context) },
                         onCerrarSesion = onCerrarSesion
@@ -740,76 +1032,76 @@ private fun VistaAdminResumenEmpresas(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = DimensPagoflex.EspacioMediano),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 84.dp)
     ) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f))
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Control Consolidado por Empresas",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "${uiState.organizaciones.size} empresas (${uiState.empresasSuspendidas.size} susp.) • ${uiState.clientesDisponibles.size} clientes • ${uiState.ejecutivosDisponibles.size} ejecutivos",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Surface(
+                        color = AzulPrimario,
+                        shape = CircleShape,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Dashboard,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Control Consolidado por Empresas",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "${uiState.organizaciones.size} empresas (${uiState.empresasSuspendidas.size} susp.) • ${uiState.clientesDisponibles.size} clientes • ${uiState.ejecutivosDisponibles.size} ejecutivos",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
+                    }
                 }
             }
         }
 
         item {
+            val tasaGlobal = if (volumenGlobal > 0.0) ((conciliadoGlobal * 100.0) / volumenGlobal).toInt() else 100
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Volumen Emitido", style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            text = formatoClp.format(volumenGlobal),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Mora: ${formatoClp.format(moraGlobal)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (moraGlobal > 0.0) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Conciliado Global", style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            text = formatoClp.format(conciliadoGlobal),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val tasaGlobal = if (volumenGlobal > 0.0) ((conciliadoGlobal * 100.0) / volumenGlobal).toInt() else 100
-                        Text(
-                            text = "Recaudación: $tasaGlobal%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF16A34A),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+                TarjetaResumenHero(
+                    titulo = "Volumen Emitido",
+                    valorPrincipal = formatoClp.format(volumenGlobal),
+                    subtitulo = "Mora: ${formatoClp.format(moraGlobal)}",
+                    icono = Icons.Default.AccountBalance,
+                    gradiente = GradienteMarca,
+                    modifier = Modifier.weight(1f)
+                )
+                TarjetaResumenHero(
+                    titulo = "Conciliado Global",
+                    valorPrincipal = formatoClp.format(conciliadoGlobal),
+                    subtitulo = "Recaudación: $tasaGlobal%",
+                    icono = Icons.Default.Verified,
+                    gradiente = GradienteEsmeralda,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -817,12 +1109,11 @@ private fun VistaAdminResumenEmpresas(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.75f)
-                    )
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    colors = CardDefaults.cardColors(containerColor = RojoContenedorClaro)
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
@@ -832,13 +1123,13 @@ private fun VistaAdminResumenEmpresas(
                             Icon(
                                 Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                                tint = RojoOscuro
                             )
                             Text(
                                 text = "Radar de Strikes (${clientesConStrikes.size} cliente(s) en riesgo)",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                color = RojoOscuro
                             )
                         }
                         clientesConStrikes.take(3).forEach { (cliente, strikes) ->
@@ -853,21 +1144,30 @@ private fun VistaAdminResumenEmpresas(
                                         text = "${cliente.nombre} • $strikes/${InicioViewModel.STRIKES_UMBRAL_APP} Strike(s)",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = RojoOscuro
                                     )
                                     Text(
                                         text = if (suspendido) "Cuenta suspendida en la app"
                                         else if (strikes >= InicioViewModel.STRIKES_UMBRAL_APP) "Umbral alcanzado: listo para bloqueo global"
                                         else "RUT: ${cliente.rut.ifBlank { "-" }}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = RojoOscuro.copy(alpha = 0.85f)
                                     )
                                 }
-                                FilledTonalButton(
+                                Button(
                                     onClick = { onGestionarUsuario(cliente) },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = RojoOscuro,
+                                        contentColor = Color.White
+                                    ),
+                                    modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text(if (suspendido) "Gestionar" else "Sancionar", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        text = if (suspendido) "Gestionar" else "Sancionar",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -877,20 +1177,10 @@ private fun VistaAdminResumenEmpresas(
         }
 
         item {
-            OutlinedTextField(
-                value = uiState.busquedaPlataformaAdmin,
+            CampoBusquedaEstilizado(
+                valor = uiState.busquedaPlataformaAdmin,
                 onValueChange = onBusquedaChange,
-                placeholder = { Text("Buscar empresa por nombre, RUT, rubro o ejecutivo...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (uiState.busquedaPlataformaAdmin.isNotBlank()) {
-                        IconButton(onClick = { onBusquedaChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda")
-                        }
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "Buscar empresa por nombre, RUT, rubro o ejecutivo..."
             )
         }
 
@@ -902,10 +1192,10 @@ private fun VistaAdminResumenEmpresas(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 filtrosEmpresa.forEach { filtro ->
-                    FilterChip(
-                        selected = uiState.filtroEmpresasAdmin == filtro,
-                        onClick = { onFiltroEmpresasChange(filtro) },
-                        label = { Text(filtro) }
+                    ChipFiltroAccesible(
+                        etiqueta = filtro,
+                        seleccionado = uiState.filtroEmpresasAdmin == filtro,
+                        onClick = { onFiltroEmpresasChange(filtro) }
                     )
                 }
             }
@@ -915,6 +1205,7 @@ private fun VistaAdminResumenEmpresas(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Text(
@@ -949,11 +1240,12 @@ private fun VistaAdminResumenEmpresas(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta),
                     colors = CardDefaults.cardColors(
                         containerColor = if (estaSuspendida) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                            RojoContenedorClaro.copy(alpha = 0.45f)
                         } else {
                             MaterialTheme.colorScheme.surface
                         }
@@ -961,7 +1253,7 @@ private fun VistaAdminResumenEmpresas(
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -980,16 +1272,19 @@ private fun VistaAdminResumenEmpresas(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Surface(
-                                color = if (estaSuspendida) Color(0xFFDC2626).copy(alpha = 0.16f) else Color(0xFF16A34A).copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = if (estaSuspendida) "SUSPENDIDA" else "ACTIVA",
-                                    color = if (estaSuspendida) Color(0xFFDC2626) else Color(0xFF16A34A),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            if (estaSuspendida) {
+                                BadgeEstadoAccesible(
+                                    texto = "SUSPENDIDA",
+                                    icono = Icons.Default.Block,
+                                    colorFondo = RojoContenedorClaro,
+                                    colorContenido = RojoOscuro
+                                )
+                            } else {
+                                BadgeEstadoAccesible(
+                                    texto = "ACTIVA",
+                                    icono = Icons.Default.CheckCircle,
+                                    colorFondo = VerdeContenedorClaro,
+                                    colorContenido = VerdeOscuro
                                 )
                             }
                         }
@@ -998,7 +1293,7 @@ private fun VistaAdminResumenEmpresas(
                             Text(
                                 text = "Motivo suspensión: $motivoSusp",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFDC2626),
+                                color = RojoOscuro,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -1010,7 +1305,7 @@ private fun VistaAdminResumenEmpresas(
                             fontWeight = FontWeight.SemiBold
                         )
 
-                        HorizontalDivider()
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1022,14 +1317,14 @@ private fun VistaAdminResumenEmpresas(
                             }
                             Column {
                                 Text("Conciliado", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(formatoClp.format(totalConciliado), fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                                Text(formatoClp.format(totalConciliado), fontWeight = FontWeight.Bold, color = VerdeExito)
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("Por Cobrar", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = formatoClp.format(totalPendiente),
                                     fontWeight = FontWeight.Bold,
-                                    color = if (totalVencido > 0.0) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
+                                    color = if (totalVencido > 0.0) RojoError else MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -1047,17 +1342,19 @@ private fun VistaAdminResumenEmpresas(
                                     Text(
                                         text = "Mora vencida: ${formatoClp.format(totalVencido)} (${compsVencidos.size} strike(s))",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFFDC2626),
+                                        color = RojoError,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
                             LinearProgressIndicator(
                                 progress = { porcentajeRecaudacion.coerceIn(0f, 1f) },
+                                color = VerdeExito,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(50))
+                                    .height(7.dp)
+                                    .clip(RoundedCornerShape(DimensPagoflex.RadioChip))
                             )
                         }
 
@@ -1069,16 +1366,19 @@ private fun VistaAdminResumenEmpresas(
                             Text(
                                 text = "$clientesActivosOrg cliente(s) • $solicitudesPendientesOrg solicitud(es) • ${compsOrg.size} cobro(s)",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
                             )
                             OutlinedButton(
                                 onClick = { onSuspenderEmpresa(org) },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo),
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton)
                             ) {
                                 Text(
                                     text = if (estaSuspendida) "Reactivar" else "Suspender",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (estaSuspendida) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (estaSuspendida) VerdeExito else RojoError
                                 )
                             }
                         }
@@ -1131,25 +1431,15 @@ private fun VistaAdminPlataforma(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(DimensPagoflex.EspacioMediano),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+        contentPadding = PaddingValues(bottom = 84.dp)
     ) {
         item {
-            OutlinedTextField(
-                value = uiState.busquedaAdmin,
+            CampoBusquedaEstilizado(
+                valor = uiState.busquedaAdmin,
                 onValueChange = onBusquedaChange,
-                placeholder = { Text("Buscar empresa o cuenta por nombre, RUT, correo o rol...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (uiState.busquedaAdmin.isNotBlank()) {
-                        IconButton(onClick = { onBusquedaChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda")
-                        }
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "Buscar empresa o cuenta por nombre, RUT, correo o rol..."
             )
         }
 
@@ -1177,9 +1467,11 @@ private fun VistaAdminPlataforma(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.cardColors(
                     containerColor = if (motivoSusp != null) {
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                        RojoContenedorClaro.copy(alpha = 0.45f)
                     } else {
                         MaterialTheme.colorScheme.surface
                     }
@@ -1192,42 +1484,41 @@ private fun VistaAdminPlataforma(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(org.nombre, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             if (motivoSusp != null) {
-                                Surface(color = Color(0xFFDC2626), shape = RoundedCornerShape(4.dp)) {
-                                    Text(
-                                        text = "SUSPENDIDA",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                                BadgeEstadoAccesible(
+                                    texto = "SUSPENDIDA",
+                                    icono = Icons.Default.Block,
+                                    colorFondo = RojoContenedorClaro,
+                                    colorContenido = RojoOscuro
+                                )
                             }
                         }
                         Text("Tipo: ${org.tipo} • RUT: ${org.rut}", style = MaterialTheme.typography.bodySmall)
                         Text(org.correoContacto, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(4.dp))
                         Text(
                             text = "Ejecutivo(s): " + if (ejecutivosDeEstaOrg.isEmpty()) "Sin ejecutivo" else ejecutivosDeEstaOrg.joinToString(", ") { it.nombre },
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF16A34A),
+                            color = VerdeExito,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = "Clientes activos: ${clientesAprobados.size}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    IconButton(onClick = { onSuspenderOrg(org) }) {
+                    IconButton(
+                        onClick = { onSuspenderOrg(org) },
+                        modifier = Modifier.size(DimensPagoflex.TamanoToqueMinimo)
+                    ) {
                         Icon(
-                            Icons.Default.Lock,
-                            contentDescription = "Suspender o reactivar empresa",
-                            tint = if (motivoSusp != null) Color(0xFF16A34A) else Color(0xFFD97706)
+                            imageVector = if (motivoSusp != null) Icons.Default.LockOpen else Icons.Default.Lock,
+                            contentDescription = if (motivoSusp != null) "Reactivar empresa" else "Suspender empresa",
+                            tint = if (motivoSusp != null) VerdeExito else AmarilloAdvertencia
                         )
                     }
                 }
@@ -1254,10 +1545,10 @@ private fun VistaAdminPlataforma(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf("TODOS", "CON STRIKES", "CRITICOS (≥3)", "SUSPENDIDOS").forEach { f ->
-                    FilterChip(
-                        selected = uiState.filtroStrikesAdmin == f,
-                        onClick = { onFiltroStrikesChange(f) },
-                        label = { Text(f) }
+                    ChipFiltroAccesible(
+                        etiqueta = f,
+                        seleccionado = uiState.filtroStrikesAdmin == f,
+                        onClick = { onFiltroStrikesChange(f) }
                     )
                 }
             }
@@ -1275,12 +1566,15 @@ private fun VistaAdminPlataforma(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .semantics(mergeDescendants = true) {}
                     .clickable { onGestionarUsuario(usuario) },
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.cardColors(
                     containerColor = if (suspendidoApp) {
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+                        RojoContenedorClaro.copy(alpha = 0.5f)
                     } else {
-                        MaterialTheme.colorScheme.surfaceContainerLow
+                        MaterialTheme.colorScheme.surface
                     }
                 )
             ) {
@@ -1291,7 +1585,7 @@ private fun VistaAdminPlataforma(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(usuario.nombre, fontWeight = FontWeight.Bold)
                         Text(
                             text = "RUT: ${usuario.rut.ifBlank { "No registrado" }} • ${usuario.correo}",
@@ -1308,36 +1602,31 @@ private fun VistaAdminPlataforma(
                             Text(
                                 text = "⚠️ $strikes / ${InicioViewModel.STRIKES_UMBRAL_APP} Strike(s) acumulado(s)",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFDC2626),
+                                color = RojoError,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(50)
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(DimensPagoflex.RadioChip)
                         ) {
                             Text(
                                 text = usuario.rol,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                         if (suspendidoApp) {
-                            Surface(
-                                color = Color(0xFF991B1B),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = "SUSPENDIDO APP",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
+                            BadgeEstadoAccesible(
+                                texto = "SUSPENDIDO",
+                                icono = Icons.Default.Block,
+                                colorFondo = RojoContenedorClaro,
+                                colorContenido = RojoOscuro
+                            )
                         }
                     }
                 }
@@ -1363,9 +1652,9 @@ private fun VistaAdminSoporte(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(DimensPagoflex.EspacioMediano),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+        contentPadding = PaddingValues(bottom = 84.dp)
     ) {
         item {
             Column {
@@ -1388,10 +1677,10 @@ private fun VistaAdminSoporte(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf("PENDIENTES", "RESUELTOS", "TODOS").forEach { estado ->
-                    FilterChip(
-                        selected = uiState.filtroSoporteAdmin == estado,
-                        onClick = { onFiltroChange(estado) },
-                        label = { Text(estado) }
+                    ChipFiltroAccesible(
+                        etiqueta = estado,
+                        seleccionado = uiState.filtroSoporteAdmin == estado,
+                        onClick = { onFiltroChange(estado) }
                     )
                 }
             }
@@ -1401,6 +1690,7 @@ private fun VistaAdminSoporte(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Text(
@@ -1416,7 +1706,9 @@ private fun VistaAdminSoporte(
                 val esPendiente = ticket.estado == "PENDIENTE"
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -1433,16 +1725,19 @@ private fun VistaAdminSoporte(
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
                             )
-                            Surface(
-                                color = if (esPendiente) Color(0xFFD97706).copy(alpha = 0.16f) else Color(0xFF16A34A).copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = ticket.estado,
-                                    color = if (esPendiente) Color(0xFFB45309) else Color(0xFF16A34A),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            if (esPendiente) {
+                                BadgeEstadoAccesible(
+                                    texto = ticket.estado,
+                                    icono = Icons.Default.Schedule,
+                                    colorFondo = AmarilloContenedorClaro,
+                                    colorContenido = AmarilloAdvertencia
+                                )
+                            } else {
+                                BadgeEstadoAccesible(
+                                    texto = ticket.estado,
+                                    icono = Icons.Default.CheckCircle,
+                                    colorFondo = VerdeContenedorClaro,
+                                    colorContenido = VerdeOscuro
                                 )
                             }
                         }
@@ -1463,23 +1758,23 @@ private fun VistaAdminSoporte(
 
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = ticket.mensaje,
                                 style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(10.dp)
+                                modifier = Modifier.padding(12.dp)
                             )
                         }
 
                         if (!ticket.respuestaAdmin.isNullOrBlank()) {
                             Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
+                                Column(modifier = Modifier.padding(12.dp)) {
                                     Text(
                                         text = "Respuesta Administración (${ticket.fechaRespuesta ?: ""}):",
                                         style = MaterialTheme.typography.labelSmall,
@@ -1497,9 +1792,14 @@ private fun VistaAdminSoporte(
                         if (esPendiente) {
                             Button(
                                 onClick = { onResponderTicket(ticket) },
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DimensPagoflex.AlturaBoton)
                             ) {
-                                Text("Responder y Resolver")
+                                Icon(Icons.Default.Send, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Responder y Resolver", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1614,6 +1914,9 @@ private fun VistaCompromisos(
 
     val tituloTarjetaDerecha = if (esEjecutivo) "Conciliado" else "Pagado"
     val montoTarjetaDerecha = compromisosVisiblesPorRol.filter { it.estado == "PAGADO" }.sumOf { it.monto }
+    val totalCompromisosCount = compromisosVisiblesPorRol.size
+    val pagadosCount = compromisosVisiblesPorRol.count { it.estado == "PAGADO" }
+    val progresoCumplimiento = if (totalCompromisosCount > 0) pagadosCount.toFloat() / totalCompromisosCount.toFloat() else 1f
 
     val queryNorm = remember(uiState.textoBusqueda) {
         normalizarTextoBusqueda(uiState.textoBusqueda)
@@ -1639,19 +1942,21 @@ private fun VistaCompromisos(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = DimensPagoflex.EspacioMediano)
     ) {
         if (esEjecutivo && motivoSuspensionEmpresa != null) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                colors = CardDefaults.cardColors(containerColor = RojoContenedorClaro)
             ) {
                 Text(
                     text = "Tu empresa está suspendida por Administración: $motivoSuspensionEmpresa. No puedes registrar nuevos cobros.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = RojoOscuro,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -1660,31 +1965,32 @@ private fun VistaCompromisos(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                colors = CardDefaults.cardColors(containerColor = RojoContenedorClaro)
             ) {
                 Text(
                     text = "Tu cuenta Ejecutivo no tiene una empresa vinculada.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = RojoOscuro,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(12.dp)
                 )
             }
         }
 
         if ((cantidadPorVencer > 0 || cantidadVencidosStrike > 0) && userActual != null) {
+            val esCritico = cantidadVencidosStrike > 0
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
+                    .semantics(mergeDescendants = true) {}
                     .clickable {
                         onFiltroChange(if (cantidadPorVencer > 0) "POR VENCER" else "VENCIDOS")
                     },
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (cantidadVencidosStrike > 0) {
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
-                    } else {
-                        Color(0xFFFEF3C7)
-                    }
+                    containerColor = if (esCritico) RojoContenedorClaro else AmarilloContenedorClaro
                 )
             ) {
                 Row(
@@ -1695,16 +2001,16 @@ private fun VistaCompromisos(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
+                        imageVector = if (esCritico) Icons.Default.Error else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = if (cantidadVencidosStrike > 0) MaterialTheme.colorScheme.error else Color(0xFFD97706)
+                        tint = if (esCritico) RojoOscuro else AmarilloAdvertencia
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = if (esEjecutivo) "Radar de Vencimientos y Strikes" else "Aviso de Vencimientos",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A)
+                            color = if (esCritico) RojoOscuro else AmarilloAdvertencia
                         )
                         val resumen = buildList {
                             if (cantidadPorVencer > 0) add("$cantidadPorVencer por vencer (≤ 3 días)")
@@ -1713,7 +2019,7 @@ private fun VistaCompromisos(
                         Text(
                             text = "$resumen. Toca para filtrar.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF334155)
+                            color = if (esCritico) RojoOscuro else AmarilloAdvertencia
                         )
                     }
                 }
@@ -1723,63 +2029,72 @@ private fun VistaCompromisos(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            TarjetaResumenHero(
+                titulo = tituloTarjetaIzquierda,
+                valorPrincipal = formatoClp.format(montoTarjetaIzquierda),
+                subtitulo = if (!esEjecutivo && montoFuturoRecurrente > 0.0) {
+                    "Futuro: ${formatoClp.format(montoFuturoRecurrente)}"
+                } else {
+                    "${compromisosVisiblesPorRol.count { it.estado != "PAGADO" }} activo(s)"
+                },
+                icono = Icons.Default.AccountBalanceWallet,
+                gradiente = GradienteMarca,
+                modifier = Modifier.weight(1f)
+            )
+            TarjetaResumenHero(
+                titulo = tituloTarjetaDerecha,
+                valorPrincipal = formatoClp.format(montoTarjetaDerecha),
+                subtitulo = "$pagadosCount de $totalCompromisosCount al día",
+                icono = Icons.Default.CheckCircle,
+                gradiente = GradienteEsmeralda,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (totalCompromisosCount > 0) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(tituloTarjetaIzquierda, style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text(
-                        text = formatoClp.format(montoTarjetaIzquierda),
-                        style = MaterialTheme.typography.titleMedium,
+                        text = if (esEjecutivo) "Avance de conciliación" else "Progreso de cumplimiento",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "${(progresoCumplimiento * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerdeExito,
                         fontWeight = FontWeight.Bold
                     )
-                    if (!esEjecutivo && montoFuturoRecurrente > 0.0) {
-                        Text(
-                            text = "Futuro programado: ${formatoClp.format(montoFuturoRecurrente)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
                 }
-            }
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(tituloTarjetaDerecha, style = MaterialTheme.typography.labelMedium)
-                    Text(
-                        text = formatoClp.format(montoTarjetaDerecha),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                LinearProgressIndicator(
+                    progress = { progresoCumplimiento.coerceIn(0f, 1f) },
+                    color = VerdeExito,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(DimensPagoflex.RadioChip))
+                )
             }
         }
 
-        OutlinedTextField(
-            value = uiState.textoBusqueda,
+        CampoBusquedaEstilizado(
+            valor = uiState.textoBusqueda,
             onValueChange = onBusquedaChange,
-            placeholder = {
-                Text(
-                    if (esEjecutivo) "Buscar cobro por concepto o cliente..."
-                    else "Buscar por empresa o concepto..."
-                )
-            },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (uiState.textoBusqueda.isNotBlank()) {
-                    IconButton(onClick = { onBusquedaChange("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda")
-                    }
-                }
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            placeholder = if (esEjecutivo) "Buscar cobro por concepto o cliente..."
+            else "Buscar por empresa o concepto..."
         )
 
         Row(
@@ -1790,10 +2105,10 @@ private fun VistaCompromisos(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             estados.forEach { estado ->
-                FilterChip(
-                    selected = uiState.filtroEstado == estado,
-                    onClick = { onFiltroChange(estado) },
-                    label = { Text(estado) }
+                ChipFiltroAccesible(
+                    etiqueta = estado,
+                    seleccionado = uiState.filtroEstado == estado,
+                    onClick = { onFiltroChange(estado) }
                 )
             }
         }
@@ -1803,6 +2118,7 @@ private fun VistaCompromisos(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
                 Text(
@@ -1819,7 +2135,7 @@ private fun VistaCompromisos(
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                contentPadding = PaddingValues(bottom = 84.dp)
             ) {
                 items(filtrados, key = { it.id }) { compromiso ->
                     val clienteMostrar = uiState.asignacionesCobros[compromiso.id]?.usuarioNombre
@@ -1858,13 +2174,34 @@ private fun TarjetaCompromisoItem(
     val esCuotaFuturaRecurrente = (compromiso.estado == "PENDIENTE" || compromiso.estado == "RECHAZADO") &&
             !InicioViewModel.esCompromisoExigibleAhora(compromiso)
 
-    val colorEstado = when {
-        compromiso.estado == "PAGADO" -> Color(0xFF16A34A)
-        estaVencidoImpago -> Color(0xFFDC2626)
-        compromiso.estado == "RECHAZADO" -> Color(0xFFDC2626)
-        compromiso.estado == "REVISION" -> Color(0xFF2563EB)
-        else -> Color(0xFFD97706)
+    val (colorBarraLateral, iconoEstado, fondoBadge, textoBadgeColor) = when {
+        compromiso.estado == "PAGADO" -> listOf(
+            VerdeExito,
+            Icons.Default.CheckCircle,
+            VerdeContenedorClaro,
+            VerdeOscuro
+        )
+        estaVencidoImpago || compromiso.estado == "RECHAZADO" -> listOf(
+            RojoError,
+            Icons.Default.Error,
+            RojoContenedorClaro,
+            RojoOscuro
+        )
+        compromiso.estado == "REVISION" -> listOf(
+            AzulSecundario,
+            Icons.Default.HourglassTop,
+            AzulContenedorClaro,
+            AzulPrimario
+        )
+        else -> listOf(
+            AmarilloAdvertencia,
+            Icons.Default.Schedule,
+            AmarilloContenedorClaro,
+            AmarilloAdvertencia
+        )
     }
+
+    val etiquetaEstado = if (estaVencidoImpago && compromiso.estado == "PENDIENTE") "VENCIDO" else compromiso.estado
     val tieneArchivoReal = !compromiso.comprobanteUri.isNullOrBlank() &&
             compromiso.comprobanteUri.startsWith("content://")
 
@@ -1872,218 +2209,261 @@ private fun TarjetaCompromisoItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onAbrirDetalle() },
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = compromiso.empresaNombre,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = if (estaVencidoImpago && compromiso.estado == "PENDIENTE") "VENCIDO" else compromiso.estado,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = colorEstado,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "Ver detalle expandido",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            if (!clienteAsignado.isNullOrBlank()) {
-                Text(
-                    text = "Cliente: $clienteAsignado",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Text(text = compromiso.concepto, style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = formatoClp.format(compromiso.monto),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Indicador lateral de estado
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .height(145.dp)
+                    .background(colorBarraLateral as Color)
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = "Vence: ${compromiso.fechaVencimiento}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (estaVencidoImpago) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (estaVencidoImpago || estaPorVencer) FontWeight.SemiBold else FontWeight.Normal
-                )
-
-                if (estaVencidoImpago && diasParaVencer != null) {
-                    Surface(
-                        color = Color(0xFFDC2626).copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(50)
+                // Bloque agrupado para lectura fluida en TalkBack
+                Column(
+                    modifier = Modifier.semantics(mergeDescendants = true) {},
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Vencido (${abs(diasParaVencer)}d) • +1 Strike",
-                            color = Color(0xFFDC2626),
-                            style = MaterialTheme.typography.labelSmall,
+                            text = compromiso.empresaNombre,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.weight(1f)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            BadgeEstadoAccesible(
+                                texto = etiquetaEstado,
+                                icono = iconoEstado as ImageVector,
+                                colorFondo = fondoBadge as Color,
+                                colorContenido = textoBadgeColor as Color
+                            )
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Ver detalle del compromiso",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (!clienteAsignado.isNullOrBlank()) {
+                        Text(
+                            text = "Cliente: $clienteAsignado",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VerdeExito,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                } else if (estaPorVencer && diasParaVencer != null) {
-                    val textoUrgencia = when (diasParaVencer) {
-                        0 -> "Vence HOY"
-                        1 -> "Vence MAÑANA"
-                        else -> "Vence en $diasParaVencer días"
-                    }
-                    Surface(
-                        color = Color(0xFFD97706).copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(50)
+
+                    Text(
+                        text = compromiso.concepto,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Text(
+                        text = formatoClp.format(compromiso.monto),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = textoUrgencia,
-                            color = Color(0xFFB45309),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            text = "Vence: ${compromiso.fechaVencimiento}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (estaVencidoImpago) RojoError else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (estaVencidoImpago || estaPorVencer) FontWeight.SemiBold else FontWeight.Normal
                         )
-                    }
-                } else if (esCuotaFuturaRecurrente) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "Cuota futura programada",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            when (compromiso.estado) {
-                "PENDIENTE" -> {
-                    if (!esEjecutivo) {
-                        Button(
-                            onClick = onAbrirDetalle,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Pagar Compromiso", fontWeight = FontWeight.Bold)
-                        }
-                    } else {
-                        Text(
-                            text = if (estaVencidoImpago) {
-                                "Plazo expirado sin pago • Toca para ver detalle"
-                            } else {
-                                "Pendiente de pago del cliente • Toca para ver detalle"
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (estaVencidoImpago) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                "REVISION" -> {
-                    if (tieneArchivoReal) {
-                        TextButton(
-                            onClick = { onVerComprobante(compromiso.comprobanteUri!!) },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Ver comprobante adjunto")
-                        }
-                    }
-
-                    if (esEjecutivo) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { onResolverComprobante(true) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Check, contentDescription = null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Aprobar")
+                        if (estaVencidoImpago && diasParaVencer != null) {
+                            BadgeEstadoAccesible(
+                                texto = "Vencido (${abs(diasParaVencer)}d) • +1 Strike",
+                                icono = Icons.Default.Warning,
+                                colorFondo = RojoContenedorClaro,
+                                colorContenido = RojoOscuro
+                            )
+                        } else if (estaPorVencer && diasParaVencer != null) {
+                            val textoUrgencia = when (diasParaVencer) {
+                                0 -> "Vence HOY"
+                                1 -> "Vence MAÑANA"
+                                else -> "Vence en $diasParaVencer días"
                             }
-                            OutlinedButton(
-                                onClick = { onResolverComprobante(false) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Rechazar")
-                            }
-                        }
-                    } else {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Comprobante en revisión • Toca para ver detalle",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            BadgeEstadoAccesible(
+                                texto = textoUrgencia,
+                                icono = Icons.Default.Schedule,
+                                colorFondo = AmarilloContenedorClaro,
+                                colorContenido = AmarilloAdvertencia
+                            )
+                        } else if (esCuotaFuturaRecurrente) {
+                            BadgeEstadoAccesible(
+                                texto = "Cuota futura",
+                                icono = Icons.Default.EventRepeat,
+                                colorFondo = MaterialTheme.colorScheme.secondaryContainer,
+                                colorContenido = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
                 }
-                "RECHAZADO" -> {
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                when (compromiso.estado) {
+                    "PENDIENTE" -> {
+                        if (!esEjecutivo) {
+                            Button(
+                                onClick = onAbrirDetalle,
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DimensPagoflex.AlturaBoton)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Pagar Compromiso", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Text(
+                                text = if (estaVencidoImpago) {
+                                    "Plazo expirado sin pago • Toca para ver detalle"
+                                } else {
+                                    "Pendiente de pago del cliente • Toca para ver detalle"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (estaVencidoImpago) RojoError else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    "REVISION" -> {
+                        if (tieneArchivoReal) {
+                            TextButton(
+                                onClick = { onVerComprobante(compromiso.comprobanteUri!!) },
+                                modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Ver comprobante adjunto", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        if (esEjecutivo) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { onResolverComprobante(true) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = VerdeExito,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(DimensPagoflex.TamanoToqueMinimo)
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Aprobar", fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = { onResolverComprobante(false) },
+                                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(DimensPagoflex.TamanoToqueMinimo)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = null, tint = RojoError)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Rechazar", color = RojoError, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            Surface(
+                                color = AzulContenedorClaro,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Comprobante en revisión • Toca para ver detalle",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = AzulPrimario,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                    "RECHAZADO" -> {
+                        Surface(
+                            color = RojoContenedorClaro,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
                                 text = "Comprobante rechazado: ${InicioViewModel.MOTIVO_RECHAZO_GENERAL}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                color = RojoOscuro,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                        if (!esEjecutivo) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Button(
+                                onClick = onAbrirDetalle,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = RojoError,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DimensPagoflex.AlturaBoton)
+                            ) {
+                                Text("Reintentar Pago", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    "PAGADO" -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = VerdeExito,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Pago verificado y conciliado • Toca para ver detalle",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = VerdeExito,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
-                    if (!esEjecutivo) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = onAbrirDetalle,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Reintentar Pago", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                "PAGADO" -> {
-                    Text(
-                        text = "Pago verificado y conciliado • Toca para ver detalle",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF16A34A)
-                    )
                 }
             }
         }
@@ -2135,23 +2515,30 @@ private fun DialogoDetalleCompromiso(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    color = Color.Transparent,
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GradienteMarca, RoundedCornerShape(DimensPagoflex.RadioTarjeta))
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text("Monto a pagar", style = MaterialTheme.typography.labelMedium)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Monto a pagar",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
                         Text(
                             text = formatoClp.format(compromiso.monto),
                             style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
                         )
                     }
                 }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -2165,7 +2552,7 @@ private fun DialogoDetalleCompromiso(
                         Text(
                             text = "Fecha de vencimiento: ${compromiso.fechaVencimiento}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (estaVencido) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
+                            color = if (estaVencido) RojoError else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "Estado actual: ${if (estaVencido && compromiso.estado == "PENDIENTE") "VENCIDO" else compromiso.estado}",
@@ -2184,14 +2571,14 @@ private fun DialogoDetalleCompromiso(
 
                 if (compromiso.estado == "RECHAZADO") {
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(8.dp),
+                        color = RojoContenedorClaro,
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Motivo de rechazo anterior: ${InicioViewModel.MOTIVO_RECHAZO_GENERAL}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = RojoOscuro,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
@@ -2213,22 +2600,32 @@ private fun DialogoDetalleCompromiso(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = onTomarFoto,
-                            modifier = Modifier.weight(1f)
+                            shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
                         ) {
-                            Text("Tomar Foto")
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Foto")
                         }
                         OutlinedButton(
                             onClick = onAdjuntarDigital,
-                            modifier = Modifier.weight(1f)
+                            shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
                         ) {
-                            Text("Galería / PDF")
+                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Archivo")
                         }
                     }
 
                     if (tieneBorrador) {
                         Surface(
-                            color = Color(0xFF16A34A).copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(8.dp),
+                            color = VerdeContenedorClaro,
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -2241,7 +2638,7 @@ private fun DialogoDetalleCompromiso(
                                 Text(
                                     text = "Comprobante adjuntado",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = Color(0xFF16A34A),
+                                    color = VerdeOscuro,
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (comprobanteBorradorUri!!.startsWith("content://")) {
@@ -2259,9 +2656,14 @@ private fun DialogoDetalleCompromiso(
                     Button(
                         onClick = onConfirmarPago,
                         enabled = tieneBorrador,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = VerdeExito,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(DimensPagoflex.AlturaBoton)
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
@@ -2271,7 +2673,10 @@ private fun DialogoDetalleCompromiso(
                     if (tieneAdjuntoGuardado) {
                         OutlinedButton(
                             onClick = { onVerComprobante(compromiso.comprobanteUri!!) },
-                            modifier = Modifier.fillMaxWidth()
+                            shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
                         ) {
                             Icon(Icons.Default.Search, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
@@ -2283,16 +2688,25 @@ private fun DialogoDetalleCompromiso(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onResolverComprobante(true) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                                modifier = Modifier.weight(1f)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = VerdeExito,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
                             ) {
-                                Text("Aprobar Pago")
+                                Text("Aprobar Pago", fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
                                 onClick = { onResolverComprobante(false) },
-                                modifier = Modifier.weight(1f)
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
                             ) {
-                                Text("Rechazar", color = MaterialTheme.colorScheme.error)
+                                Text("Rechazar", color = RojoError, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -2319,9 +2733,9 @@ private fun VistaEmpresasUsuario(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(DimensPagoflex.EspacioMediano),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+        contentPadding = PaddingValues(bottom = 84.dp)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2337,11 +2751,14 @@ private fun VistaEmpresasUsuario(
                 )
                 Button(
                     onClick = onAbrirRegistrarEmpresa,
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(DimensPagoflex.AlturaBoton)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Registrar Nueva Empresa")
+                    Text("Registrar Nueva Empresa", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -2350,10 +2767,11 @@ private fun VistaEmpresasUsuario(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Text(
-                        text = "Aún no tienes empresas asociadas. Registra una nueva empresa o presiona '+' para solicitar vinculación a una entidad existente.",
+                        text = "Aún no tienes empresas asociadas. Registra una nueva empresa o presiona 'Vincular Empresa' para solicitar acceso.",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp)
                     )
@@ -2374,7 +2792,12 @@ private fun VistaEmpresasUsuario(
                 0
             }
 
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta)
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2387,22 +2810,30 @@ private fun VistaEmpresasUsuario(
                             Text(org.correoContacto, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
 
-                        val (badgeColor, badgeText) = when (solicitud.estado) {
-                            EstadoVinculo.APROBADA -> Color(0xFF16A34A) to "APROBADA"
-                            EstadoVinculo.PENDIENTE -> Color(0xFFD97706) to "EN REVISIÓN"
-                            EstadoVinculo.RECHAZADA -> Color(0xFFDC2626) to "RECHAZADA"
-                            EstadoVinculo.BLOQUEADA -> Color(0xFF991B1B) to "BLOQUEADA"
-                        }
-                        Surface(
-                            color = badgeColor.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text(
-                                text = badgeText,
-                                color = badgeColor,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        when (solicitud.estado) {
+                            EstadoVinculo.APROBADA -> BadgeEstadoAccesible(
+                                texto = "APROBADA",
+                                icono = Icons.Default.CheckCircle,
+                                colorFondo = VerdeContenedorClaro,
+                                colorContenido = VerdeOscuro
+                            )
+                            EstadoVinculo.PENDIENTE -> BadgeEstadoAccesible(
+                                texto = "EN REVISIÓN",
+                                icono = Icons.Default.Schedule,
+                                colorFondo = AmarilloContenedorClaro,
+                                colorContenido = AmarilloAdvertencia
+                            )
+                            EstadoVinculo.RECHAZADA -> BadgeEstadoAccesible(
+                                texto = "RECHAZADA",
+                                icono = Icons.Default.Error,
+                                colorFondo = RojoContenedorClaro,
+                                colorContenido = RojoOscuro
+                            )
+                            EstadoVinculo.BLOQUEADA -> BadgeEstadoAccesible(
+                                texto = "BLOQUEADA",
+                                icono = Icons.Default.Block,
+                                colorFondo = RojoContenedorClaro,
+                                colorContenido = RojoOscuro
                             )
                         }
                     }
@@ -2418,7 +2849,7 @@ private fun VistaEmpresasUsuario(
                                     "Vinculación activa • Al día sin compromisos pendientes"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (compromisosSinPagar > 0) Color(0xFFD97706) else Color(0xFF16A34A),
+                                color = if (compromisosSinPagar > 0) AmarilloAdvertencia else VerdeExito,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -2431,31 +2862,35 @@ private fun VistaEmpresasUsuario(
                         }
                         EstadoVinculo.RECHAZADA -> {
                             Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                shape = RoundedCornerShape(8.dp),
+                                color = RojoContenedorClaro,
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = "Motivo: ${solicitud.motivoRechazo ?: "No cumple requisitos internos."}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    color = RojoOscuro,
                                     modifier = Modifier.padding(10.dp)
                                 )
                             }
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End
                             ) {
-                                Button(onClick = { onReintentarSolicitud(org.id) }) {
-                                    Text("Volver a solicitar")
+                                Button(
+                                    onClick = { onReintentarSolicitud(org.id) },
+                                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                    modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
+                                ) {
+                                    Text("Volver a solicitar", fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                         EstadoVinculo.BLOQUEADA -> {
                             Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                shape = RoundedCornerShape(8.dp),
+                                color = RojoContenedorClaro,
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
@@ -2463,12 +2898,12 @@ private fun VistaEmpresasUsuario(
                                         text = "Acceso suspendido por esta entidad",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = RojoOscuro
                                     )
                                     Text(
                                         text = "Motivo: ${solicitud.motivoRechazo ?: "Incumplimiento reiterado (Strikes)."}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = RojoOscuro
                                     )
                                 }
                             }
@@ -2498,7 +2933,7 @@ private fun VistaEmpresaEjecutivo(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+            Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(48.dp), tint = RojoError)
             Spacer(Modifier.height(12.dp))
             Text("Sin Empresa Vinculada", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
@@ -2554,52 +2989,76 @@ private fun VistaEmpresaEjecutivo(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(DimensPagoflex.EspacioMediano),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+        contentPadding = PaddingValues(bottom = 84.dp)
     ) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Mi Entidad Emisora",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = miEmpresa.nombre,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "RUT: ${miEmpresa.rut} • Tipo: ${miEmpresa.tipo}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        text = miEmpresa.correoContacto,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (motivoSuspensionEmpresa != null) {
-                        Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GradienteMarca)
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "⚠️ ENTIDAD SUSPENDIDA: $motivoSuspensionEmpresa",
+                            text = "MI ENTIDAD EMISORA",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            color = Color.White.copy(alpha = 0.85f),
                             fontWeight = FontWeight.Bold
                         )
-                    } else {
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            onClick = onAbrirAgregarCliente,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Person, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Agregar Nuevo Cliente")
+                        Text(
+                            text = miEmpresa.nombre,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "RUT: ${miEmpresa.rut} • Tipo: ${miEmpresa.tipo}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Text(
+                            text = miEmpresa.correoContacto,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF6EE7B7)
+                        )
+                        if (motivoSuspensionEmpresa != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Surface(
+                                color = RojoContenedorClaro,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "⚠️ ENTIDAD SUSPENDIDA: $motivoSuspensionEmpresa",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = RojoOscuro,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        } else {
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = onAbrirAgregarCliente,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = VerdeExito,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DimensPagoflex.AlturaBoton)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Agregar Nuevo Cliente", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -2610,7 +3069,8 @@ private fun VistaEmpresaEjecutivo(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    colors = CardDefaults.cardColors(containerColor = VerdeContenedorClaro.copy(alpha = 0.65f))
                 ) {
                     Column(
                         modifier = Modifier.padding(14.dp),
@@ -2619,18 +3079,20 @@ private fun VistaEmpresaEjecutivo(
                         Text(
                             text = "Cobros Recurrentes Activos (${plantillasEmpresa.size})",
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = VerdeOscuro
                         )
                         Text(
                             text = "Registrados una sola vez con programación mensual automática:",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = VerdeOscuro.copy(alpha = 0.85f)
                         )
                         plantillasEmpresa.forEach { p ->
                             Text(
                                 text = "• ${p.concepto} → ${p.usuarioNombre} (${formatoClp.format(p.monto)}/mes • ${p.mesesProgramados} meses)",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                color = VerdeOscuro
                             )
                         }
                     }
@@ -2639,20 +3101,10 @@ private fun VistaEmpresaEjecutivo(
         }
 
         item {
-            OutlinedTextField(
-                value = uiState.busquedaClientesEmpresa,
+            CampoBusquedaEstilizado(
+                valor = uiState.busquedaClientesEmpresa,
                 onValueChange = onBusquedaChange,
-                placeholder = { Text("Buscar cliente por nombre, RUT o correo...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (uiState.busquedaClientesEmpresa.isNotBlank()) {
-                        IconButton(onClick = { onBusquedaChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda")
-                        }
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "Buscar cliente por nombre, RUT o correo..."
             )
         }
 
@@ -2668,6 +3120,7 @@ private fun VistaEmpresaEjecutivo(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Text(
@@ -2689,7 +3142,9 @@ private fun VistaEmpresaEjecutivo(
                     val strikes = calcularStrikes(cliente.id)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
@@ -2712,28 +3167,25 @@ private fun VistaEmpresaEjecutivo(
                                     )
                                 }
                                 if (strikes > 0) {
-                                    Surface(
-                                        color = Color(0xFFDC2626).copy(alpha = 0.14f),
-                                        shape = RoundedCornerShape(50)
-                                    ) {
-                                        Text(
-                                            text = "⚠️ $strikes Strike(s)",
-                                            color = Color(0xFFDC2626),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
+                                    BadgeEstadoAccesible(
+                                        texto = "$strikes Strike(s)",
+                                        icono = Icons.Default.Warning,
+                                        colorFondo = RojoContenedorClaro,
+                                        colorContenido = RojoOscuro
+                                    )
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
                             Button(
                                 onClick = { onRevisarSolicitud(solicitud) },
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DimensPagoflex.AlturaBoton)
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Revisar Perfil Financiero y Resolver")
+                                Text("Revisar Perfil Financiero y Resolver", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -2781,12 +3233,15 @@ private fun VistaEmpresaEjecutivo(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .semantics(mergeDescendants = true) {}
                         .clickable { onRevisarSolicitud(solicitud) },
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     colors = CardDefaults.cardColors(
                         containerColor = if (estaBloqueado) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+                            RojoContenedorClaro.copy(alpha = 0.5f)
                         } else {
-                            MaterialTheme.colorScheme.surfaceContainerLow
+                            MaterialTheme.colorScheme.surface
                         }
                     )
                 ) {
@@ -2797,22 +3252,16 @@ private fun VistaEmpresaEjecutivo(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(cliente.nombre, fontWeight = FontWeight.Bold)
                                 if (estaBloqueado) {
-                                    Surface(
-                                        color = Color(0xFF991B1B),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "BLOQUEADO",
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
+                                    BadgeEstadoAccesible(
+                                        texto = "BLOQUEADO",
+                                        icono = Icons.Default.Block,
+                                        colorFondo = RojoContenedorClaro,
+                                        colorContenido = RojoOscuro
+                                    )
                                 }
                             }
                             Text("RUT: ${cliente.rut.ifBlank { "-" }} • ${cliente.correo}", style = MaterialTheme.typography.bodySmall)
@@ -2820,7 +3269,7 @@ private fun VistaEmpresaEjecutivo(
                                 Text(
                                     text = "⚠️ $strikes Strike(s) acumulado(s) por mora",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFDC2626),
+                                    color = RojoError,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -2830,12 +3279,13 @@ private fun VistaEmpresaEjecutivo(
                                 text = if (deudaEmpresa > 0) "$deudaEmpresa pendiente(s)" else "Al día",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (deudaEmpresa > 0) Color(0xFFD97706) else Color(0xFF16A34A)
+                                color = if (deudaEmpresa > 0) AmarilloAdvertencia else VerdeExito
                             )
                             Text(
                                 text = "Ver ficha ›",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -2925,110 +3375,123 @@ private fun VistaPerfil(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(horizontal = DimensPagoflex.EspacioMediano, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // Cabecera de perfil con identidad PagoFlex
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+            elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionDestacada),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
             Box(
                 modifier = Modifier
-                    .size(94.dp)
-                    .clickable { onCambiarFotoPerfil() },
+                    .fillMaxWidth()
+                    .background(GradienteMarca)
+                    .padding(20.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (avatarBitmap != null) {
-                        Image(
-                            bitmap = avatarBitmap,
-                            contentDescription = "Foto de perfil",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(94.dp)
+                            .clickable { onCambiarFotoPerfil() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f))
+                                .border(2.dp, VerdeAcento, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (avatarBitmap != null) {
+                                Image(
+                                    bitmap = avatarBitmap,
+                                    contentDescription = "Foto de perfil actual",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text(
+                                    text = iniciales,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(VerdeExito)
+                                .border(2.dp, AzulPrimario, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Cambiar foto de perfil",
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = user?.nombre ?: "Usuario PagoFlex",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    Text(
+                        text = user?.correo ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+
+                    if (!user?.rut.isNullOrBlank()) {
                         Text(
-                            text = iniciales,
-                            style = MaterialTheme.typography.headlineMedium,
+                            text = "RUT: ${user?.rut}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        color = VerdeContenedorClaro,
+                        shape = RoundedCornerShape(DimensPagoflex.RadioChip)
+                    ) {
+                        Text(
+                            text = when (rol) {
+                                "EJECUTIVO" -> "Cuenta Ejecutivo"
+                                "ADMIN" -> "Administrador Plataforma"
+                                else -> "Cliente Verificado"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = VerdeOscuro,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
                         )
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Cambiar foto de perfil",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = user?.nombre ?: "Usuario PagoFlex",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = user?.correo ?: "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (!user?.rut.isNullOrBlank()) {
-                Text(
-                    text = "RUT: ${user?.rut}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(50)
-            ) {
-                Text(
-                    text = when (rol) {
-                        "EJECUTIVO" -> "Cuenta Ejecutivo"
-                        "ADMIN" -> "Administrador Plataforma"
-                        else -> "Cliente"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
-                )
             }
         }
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+            shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Row(
                 modifier = Modifier
@@ -3037,11 +3500,14 @@ private fun VistaPerfil(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.semantics(mergeDescendants = true) {},
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
                         text = stat1Valor.toString(),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
@@ -3054,16 +3520,19 @@ private fun VistaPerfil(
                 Box(
                     modifier = Modifier
                         .width(1.dp)
-                        .height(28.dp)
+                        .height(30.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant)
                 )
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.semantics(mergeDescendants = true) {},
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
                         text = stat2Valor.toString(),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF16A34A)
+                        fontWeight = FontWeight.ExtraBold,
+                        color = VerdeExito
                     )
                     Text(
                         text = stat2Label,
@@ -3075,16 +3544,19 @@ private fun VistaPerfil(
                 Box(
                     modifier = Modifier
                         .width(1.dp)
-                        .height(28.dp)
+                        .height(30.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant)
                 )
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.semantics(mergeDescendants = true) {},
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
                         text = stat3Valor.toString(),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (!esEjecutivo && !esAdmin && strikesPropios > 0) Color(0xFFDC2626) else MaterialTheme.colorScheme.secondary
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (!esEjecutivo && !esAdmin && strikesPropios > 0) RojoError else MaterialTheme.colorScheme.primary
                     )
                     Text(
                         text = stat3Label,
@@ -3095,7 +3567,7 @@ private fun VistaPerfil(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = "Cuenta y Configuración",
                 style = MaterialTheme.typography.labelLarge,
@@ -3106,7 +3578,8 @@ private fun VistaPerfil(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column {
@@ -3125,9 +3598,9 @@ private fun VistaPerfil(
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     FilaOpcionPerfil(
-                        icono = Icons.Default.Edit,
-                        titulo = "Apariencia",
-                        subtitulo = "Paleta de colores del tema (próximamente)",
+                        icono = Icons.Default.Visibility,
+                        titulo = "Accesibilidad y Apariencia",
+                        subtitulo = "Contraste WCAG 2.1 AA y modo adaptable activos",
                         onClick = onAvisoColorFuturo
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -3150,19 +3623,18 @@ private fun VistaPerfil(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
         OutlinedButton(
             onClick = onCerrarSesion,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                .height(DimensPagoflex.AlturaBoton),
+            border = BorderStroke(1.5.dp, RojoError),
+            shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = RojoError)
         ) {
             Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Cerrar Sesión", fontWeight = FontWeight.SemiBold)
+            Text("Cerrar Sesión", fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -3179,21 +3651,23 @@ private fun FilaOpcionPerfil(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 64.dp)
+            .semantics(mergeDescendants = true) {}
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+            color = MaterialTheme.colorScheme.primaryContainer,
             shape = CircleShape,
-            modifier = Modifier.size(38.dp)
+            modifier = Modifier.size(40.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icono,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -3203,7 +3677,7 @@ private fun FilaOpcionPerfil(
             Text(
                 text = titulo,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = subtitulo,
@@ -3273,10 +3747,10 @@ private fun DialogoRegistrarEmpresaUsuario(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     tipos.forEach { tipo ->
-                        FilterChip(
-                            selected = uiState.nuevaEmpresaTipoInput == tipo,
-                            onClick = { onTipoChange(tipo) },
-                            label = { Text(tipo) }
+                        ChipFiltroAccesible(
+                            etiqueta = tipo,
+                            seleccionado = uiState.nuevaEmpresaTipoInput == tipo,
+                            onClick = { onTipoChange(tipo) }
                         )
                     }
                 }
@@ -3429,7 +3903,7 @@ private fun DialogoSuspenderEmpresaAdmin(
                     Text(
                         text = "Motivo actual de suspensión: $motivoActual",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        color = RojoError
                     )
                     Text(
                         text = "Al reactivar la empresa, sus ejecutivos volverán a emitir cobros y los clientes podrán solicitar vinculación.",
@@ -3459,14 +3933,14 @@ private fun DialogoSuspenderEmpresaAdmin(
             if (estaSuspendida) {
                 Button(
                     onClick = { onConfirmar(false) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                    colors = ButtonDefaults.buttonColors(containerColor = VerdeExito, contentColor = Color.White)
                 ) {
                     Text("Reactivar Empresa")
                 }
             } else {
                 Button(
                     onClick = { onConfirmar(true) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = RojoError, contentColor = Color.White)
                 ) {
                     Text("Suspender Empresa")
                 }
@@ -3534,10 +4008,10 @@ private fun DialogoSoporteUsuario(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     categorias.forEach { cat ->
-                        FilterChip(
-                            selected = uiState.categoriaSoporteInput == cat,
-                            onClick = { onCategoriaChange(cat) },
-                            label = { Text(cat) }
+                        ChipFiltroAccesible(
+                            etiqueta = cat,
+                            seleccionado = uiState.categoriaSoporteInput == cat,
+                            onClick = { onCategoriaChange(cat) }
                         )
                     }
                 }
@@ -3570,9 +4044,12 @@ private fun DialogoSoporteUsuario(
 
                 Button(
                     onClick = onEnviar,
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(DimensPagoflex.AlturaBoton)
                 ) {
-                    Text("Enviar Mensaje a Administración")
+                    Text("Enviar Mensaje a Administración", fontWeight = FontWeight.Bold)
                 }
 
                 if (misTickets.isNotEmpty()) {
@@ -3585,7 +4062,7 @@ private fun DialogoSoporteUsuario(
                     misTickets.forEach { t ->
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
@@ -3606,14 +4083,14 @@ private fun DialogoSoporteUsuario(
                                         text = t.estado,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (t.estado == "RESUELTO") Color(0xFF16A34A) else Color(0xFFD97706)
+                                        color = if (t.estado == "RESUELTO") VerdeExito else AmarilloAdvertencia
                                     )
                                 }
                                 Text(text = t.mensaje, style = MaterialTheme.typography.bodySmall)
                                 if (!t.respuestaAdmin.isNullOrBlank()) {
                                     Surface(
                                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
@@ -3678,7 +4155,7 @@ private fun DialogoResponderTicketAdmin(
         confirmButton = {
             Button(
                 onClick = onConfirmar,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                colors = ButtonDefaults.buttonColors(containerColor = VerdeExito, contentColor = Color.White)
             ) {
                 Text("Enviar Respuesta")
             }
@@ -3700,7 +4177,7 @@ private fun DialogoSolicitarEmpresasCliente(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Solicitar Vinculación a Empresa") },
+        title = { Text("Solicitar Vinculación a Empresa", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -3717,7 +4194,8 @@ private fun DialogoSolicitarEmpresasCliente(
                     val suspendida = uiState.empresasSuspendidas.containsKey(org.id)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
                             modifier = Modifier
@@ -3733,29 +4211,32 @@ private fun DialogoSolicitarEmpresasCliente(
                             when {
                                 suspendida -> Text(
                                     "Suspendida",
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = RojoError,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 solicitudExistente?.estado == EstadoVinculo.APROBADA -> Text(
                                     "Aprobada",
-                                    color = Color(0xFF16A34A),
+                                    color = VerdeExito,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 solicitudExistente?.estado == EstadoVinculo.PENDIENTE -> Text(
                                     "En revisión",
-                                    color = Color(0xFFD97706),
+                                    color = AmarilloAdvertencia,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 solicitudExistente?.estado == EstadoVinculo.BLOQUEADA -> Text(
                                     "Bloqueada",
-                                    color = Color(0xFF991B1B),
+                                    color = RojoOscuro,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold
                                 )
-                                else -> Button(onClick = { onSolicitarEmpresa(org.id) }) {
+                                else -> Button(
+                                    onClick = { onSolicitarEmpresa(org.id) },
+                                    modifier = Modifier.defaultMinSize(minHeight = DimensPagoflex.TamanoToqueMinimo)
+                                ) {
                                     Text("Solicitar")
                                 }
                             }
@@ -3806,11 +4287,7 @@ private fun DialogoRevisionPerfilCliente(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    color = if (perfil.strikesAcumulados > 0) {
-                        MaterialTheme.colorScheme.errorContainer
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer
-                    },
+                    color = if (perfil.strikesAcumulados > 0) RojoContenedorClaro else VerdeContenedorClaro,
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -3819,13 +4296,13 @@ private fun DialogoRevisionPerfilCliente(
                             text = "Strikes Acumulados (Mora): ${perfil.strikesAcumulados} / ${InicioViewModel.STRIKES_UMBRAL_APP}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = if (perfil.strikesAcumulados > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                            color = if (perfil.strikesAcumulados > 0) RojoOscuro else VerdeOscuro
                         )
                         Text(
                             text = "Riesgo: ${perfil.nivelRiesgo}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (perfil.strikesAcumulados > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                            color = if (perfil.strikesAcumulados > 0) RojoOscuro else VerdeOscuro
                         )
                         if (perfil.detalleStrikes.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
@@ -3833,7 +4310,7 @@ private fun DialogoRevisionPerfilCliente(
                                 Text(
                                     text = "• $detalle",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                    color = RojoOscuro
                                 )
                             }
                         }
@@ -3860,7 +4337,7 @@ private fun DialogoRevisionPerfilCliente(
                         if (perfil.compromisosPorVencerCount > 0) {
                             Text(
                                 text = "• Próximos a vencer (≤ 3 días): ${perfil.compromisosPorVencerCount}",
-                                color = Color(0xFFB45309),
+                                color = AmarilloAdvertencia,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -3871,14 +4348,14 @@ private fun DialogoRevisionPerfilCliente(
 
                 if (perfil.bloqueadoEnEstaEmpresa) {
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
+                        color = RojoContenedorClaro,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Este cliente se encuentra bloqueado en tu empresa. Motivo: ${perfil.solicitud.motivoRechazo ?: "-"}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = RojoOscuro,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
@@ -3905,11 +4382,11 @@ private fun DialogoRevisionPerfilCliente(
             if (esPendiente) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onRechazar) {
-                        Text("Rechazar", color = MaterialTheme.colorScheme.error)
+                        Text("Rechazar", color = RojoError)
                     }
                     Button(
                         onClick = onAprobar,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                        colors = ButtonDefaults.buttonColors(containerColor = VerdeExito, contentColor = Color.White)
                     ) {
                         Text("Aprobar")
                     }
@@ -3918,14 +4395,14 @@ private fun DialogoRevisionPerfilCliente(
                 if (perfil.bloqueadoEnEstaEmpresa) {
                     Button(
                         onClick = onDesbloquearCliente,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                        colors = ButtonDefaults.buttonColors(containerColor = VerdeExito, contentColor = Color.White)
                     ) {
                         Text("Desbloquear Cliente")
                     }
                 } else {
                     Button(
                         onClick = onBloquearCliente,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        colors = ButtonDefaults.buttonColors(containerColor = RojoError, contentColor = Color.White)
                     ) {
                         Text("Bloquear Cliente")
                     }
@@ -3968,7 +4445,7 @@ private fun DialogoGestionarUsuarioAdmin(
                 if (usuario.rol == "USUARIO") {
                     Surface(
                         color = if (strikesCount >= InicioViewModel.STRIKES_UMBRAL_APP) {
-                            MaterialTheme.colorScheme.errorContainer
+                            RojoContenedorClaro
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
@@ -3994,14 +4471,14 @@ private fun DialogoGestionarUsuarioAdmin(
 
                 if (estaSuspendido) {
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
+                        color = RojoContenedorClaro,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Cuenta suspendida de PagoFlex. Motivo: $motivoBloqueoActual",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = RojoOscuro,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
@@ -4024,14 +4501,14 @@ private fun DialogoGestionarUsuarioAdmin(
             if (estaSuspendido) {
                 Button(
                     onClick = { onToggleBloqueoApp(false) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                    colors = ButtonDefaults.buttonColors(containerColor = VerdeExito, contentColor = Color.White)
                 ) {
                     Text("Reactivar Cuenta")
                 }
             } else {
                 Button(
                     onClick = { onToggleBloqueoApp(true) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = RojoError, contentColor = Color.White)
                 ) {
                     Text("Bloquear de la App")
                 }
@@ -4072,7 +4549,7 @@ private fun DialogoFotoPerfil(
                     if (avatarBitmap != null) {
                         Image(
                             bitmap = avatarBitmap,
-                            contentDescription = null,
+                            contentDescription = "Vista previa foto de perfil",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -4101,7 +4578,7 @@ private fun DialogoFotoPerfil(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (uiState.avatarPath != null) {
                     TextButton(onClick = onQuitarFoto) {
-                        Text("Quitar foto", color = MaterialTheme.colorScheme.error)
+                        Text("Quitar foto", color = RojoError)
                     }
                 }
                 TextButton(onClick = onDismiss) {
@@ -4329,7 +4806,7 @@ private fun DialogoCompromiso(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Registrar Cobro a Cliente")
+                Text("Registrar Cobro a Cliente", fontWeight = FontWeight.Bold)
                 Text(
                     text = "Entidad emisora: ${uiState.orgSeleccionadaNombre}",
                     style = MaterialTheme.typography.labelMedium,
@@ -4344,14 +4821,14 @@ private fun DialogoCompromiso(
             ) {
                 if (clientesActivos.isEmpty()) {
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
+                        color = RojoContenedorClaro,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "No tienes clientes activos en ${uiState.orgSeleccionadaNombre}. Agrega un cliente en 'Mi Empresa' para emitir cobros.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = RojoOscuro,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
@@ -4365,7 +4842,7 @@ private fun DialogoCompromiso(
                             isError = uiState.errorClienteCompromiso != null,
                             trailingIcon = {
                                 IconButton(onClick = { expandedClientes = true }) {
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Seleccionar cliente")
                                 }
                             },
                             modifier = Modifier
@@ -4437,15 +4914,15 @@ private fun DialogoCompromiso(
                     fontWeight = FontWeight.Bold
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = uiState.esCobroRecurrenteMensual,
-                        onClick = { onToggleRecurrente(true) },
-                        label = { Text("Mensual (1 registro)") }
+                    ChipFiltroAccesible(
+                        etiqueta = "Mensual (1 registro)",
+                        seleccionado = uiState.esCobroRecurrenteMensual,
+                        onClick = { onToggleRecurrente(true) }
                     )
-                    FilterChip(
-                        selected = !uiState.esCobroRecurrenteMensual,
-                        onClick = { onToggleRecurrente(false) },
-                        label = { Text("Pago único") }
+                    ChipFiltroAccesible(
+                        etiqueta = "Pago único",
+                        seleccionado = !uiState.esCobroRecurrenteMensual,
+                        onClick = { onToggleRecurrente(false) }
                     )
                 }
 
@@ -4457,10 +4934,10 @@ private fun DialogoCompromiso(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(3, 6, 12).forEach { meses ->
-                            FilterChip(
-                                selected = uiState.mesesRecurrencia == meses,
-                                onClick = { onMesesRecurrenciaChange(meses) },
-                                label = { Text("$meses meses") }
+                            ChipFiltroAccesible(
+                                etiqueta = "$meses meses",
+                                seleccionado = uiState.mesesRecurrencia == meses,
+                                onClick = { onMesesRecurrenciaChange(meses) }
                             )
                         }
                     }
