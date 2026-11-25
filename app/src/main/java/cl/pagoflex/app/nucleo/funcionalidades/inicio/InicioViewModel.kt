@@ -14,12 +14,14 @@ import cl.pagoflex.app.nucleo.almacen.AlmacenSesion
 import cl.pagoflex.app.nucleo.almacen.SesionUsuario
 import cl.pagoflex.app.nucleo.dto.CompromisoDto
 import cl.pagoflex.app.nucleo.dto.OrganizacionDto
+import cl.pagoflex.app.nucleo.dto.TicketRequestDto
 import cl.pagoflex.app.nucleo.dto.UsuarioDto
 import cl.pagoflex.app.nucleo.local.entidad.CompromisoEntity
 import cl.pagoflex.app.nucleo.local.entidad.OrganizacionEntity
 import cl.pagoflex.app.nucleo.local.entidad.UsuarioEntity
 import cl.pagoflex.app.nucleo.red.ApiAutenticacion
 import cl.pagoflex.app.nucleo.red.ApiCompromisos
+import cl.pagoflex.app.nucleo.red.ApiSoporte
 import cl.pagoflex.app.nucleo.util.NotificadorPagoFlex
 import cl.pagoflex.app.nucleo.util.ValidadorRut
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,7 +41,6 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import kotlin.math.abs
-import java.util.UUID
 
 enum class EstadoVinculo { PENDIENTE, APROBADA, RECHAZADA, BLOQUEADA }
 
@@ -47,6 +48,7 @@ data class SolicitudVinculacion(val usuarioId: Int, val organizacionId: Int, val
 data class AsignacionCobro(val compromisoId: Int, val usuarioId: Int, val usuarioNombre: String)
 data class PlantillaCobroRecurrente(val id: String, val organizacionId: Int, val empresaNombre: String, val usuarioId: Int, val usuarioNombre: String, val concepto: String, val monto: Double, val diaVencimiento: Int, val mesesProgramados: Int, val fechaRegistro: String)
 data class PerfilFinancieroCliente(val cliente: UsuarioEntity, val solicitud: SolicitudVinculacion, val strikesAcumulados: Int, val detalleStrikes: List<String>, val porcentajeCumplimiento: Int, val pagados: Int, val montoTotalPagado: Int, val pendientes: Int, val enRevision: Int, val compromisosPorVencerCount: Int, val rechazados: Int, val montoDeudaActual: Int, val nivelRiesgo: String, val bloqueadoEnEstaEmpresa: Boolean)
+
 data class TicketSoporte(
     val id: String,
     val usuarioId: Int,
@@ -59,10 +61,7 @@ data class TicketSoporte(
     val mensaje: String,
     val fechaCreacion: String,
     val estado: String,
-    // PAGOFLEX: lo atiende la administración (tickets de ejecutivos).
-    // EJECUTIVO: lo atiende el ejecutivo de la empresa (tickets de clientes).
     val destino: String = "PAGOFLEX",
-    // Empresa del cliente que abre el ticket, para enrutarlo a su ejecutivo.
     val empresaId: Int? = null,
     val respuestaAdmin: String? = null,
     val fechaRespuesta: String? = null
@@ -174,6 +173,7 @@ data class InicioUiState(
 class InicioViewModel @Inject constructor(
     private val apiCompromisos: ApiCompromisos,
     private val apiAutenticacion: ApiAutenticacion,
+    private val apiSoporte: ApiSoporte,
     private val almacenSesion: AlmacenSesion
 ) : ViewModel() {
 
@@ -213,25 +213,47 @@ class InicioViewModel @Inject constructor(
         }
     }
 
-    // ---------------------------------------------------------
-    // CARGA DE DATOS DESDE BACKEND (SIN ROOM)
-    // ---------------------------------------------------------
     fun inicializarEntorno(context: Context) {
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true) }
             try {
-                // 1. Identidad real: sale de la sesión que se guardó en el login
                 val sesion = almacenSesion.sesion.first()
 
-                // 2. Datos del backend (si un endpoint falla, la pantalla no se cae)
                 val compromisosRemotos = intentar { apiCompromisos.listarCompromisos() }.orEmpty()
                 val cuentas = intentar { apiAutenticacion.listarUsuarios() }.orEmpty()
+                val ticketsRemotos = intentar { apiSoporte.listarTickets() }.orEmpty()
 
-                // 3. Mapeo a las entidades que usa la UI
                 val compromisosLocales = compromisosRemotos.map { it.aCompromisoLocal() }
                 val usuarios = cuentas.map { it.aUsuarioEntity() }
 
-                // Si el listado de cuentas no trae al usuario de la sesión, lo construimos con lo guardado
+                // Mapea los tickets a la UI
+                val ticketsLocales = ticketsRemotos.map { dto ->
+                    // Traducimos el tipo técnico a un texto bonito
+                    val tipoFormateado = when(dto.tipo) {
+                        "REGISTRO_EMPRESA" -> "Solicitud de Empresa"
+                        "SOPORTE" -> "Ticket de Soporte"
+                        "VINCULACION_EMPRESA" -> "Solicitud de Vinculación"
+                        else -> "Mensaje General"
+                    }
+
+                    TicketSoporte(
+                        id = dto.id,
+                        usuarioId = dto.usuarioId.hashCode(),
+                        usuarioNombre = dto.usuarioNombre,
+                        usuarioRol = "USUARIO",
+                        usuarioRut = "",
+                        empresaNombre = null,
+                        categoria = tipoFormateado, // <-- Aquí se guarda el nombre bonito
+                        asunto = dto.asunto,
+                        mensaje = dto.descripcion,
+                        fechaCreacion = dto.creadoEn.take(10),
+                        estado = dto.estado,
+                        // Si es registro de empresa, va a PAGOFLEX. Si es soporte, va al EJECUTIVO
+                        destino = if (dto.tipo == "REGISTRO_EMPRESA") "PAGOFLEX" else "EJECUTIVO",
+                        respuestaAdmin = dto.motivoRespuesta
+                    )
+                }
+
                 val usuarioActual = usuarios.firstOrNull { it.id == sesion?.id?.hashCode() }
                     ?: sesion?.aUsuarioEntity()
                     ?: usuarios.firstOrNull { it.rol == "USUARIO" }
@@ -240,7 +262,6 @@ class InicioViewModel @Inject constructor(
                     .map { it.organizacion.aOrganizacionEntity() }
                     .distinctBy { it.id }
 
-                // 4. Vínculos usuario -> empresas, deducidos de sus compromisos y de su empresa asignada
                 val vinculos = mutableMapOf<Int, MutableSet<Int>>()
                 compromisosLocales.forEach { compromiso ->
                     if (compromiso.usuarioId != 0 && compromiso.organizacionId != 0) {
@@ -254,8 +275,6 @@ class InicioViewModel @Inject constructor(
                     }
                 }
 
-                // 5. Titular de cada compromiso: permite mostrar el cliente real en las
-                //    vistas de ejecutivo y de administración
                 val asignaciones = compromisosLocales.mapNotNull { compromiso ->
                     val titular = usuarios.firstOrNull { it.id == compromiso.usuarioId }
                         ?: return@mapNotNull null
@@ -272,10 +291,10 @@ class InicioViewModel @Inject constructor(
                         compromisos = compromisosLocales,
                         organizaciones = organizaciones,
                         vinculosUsuarioOrgs = vinculos,
-                        asignacionesCobros = asignaciones
+                        asignacionesCobros = asignaciones,
+                        ticketsSoporte = ticketsLocales
                     )
                 }
-
             } catch (e: Exception) {
                 e.printStackTrace()
                 _uiState.update {
@@ -285,7 +304,6 @@ class InicioViewModel @Inject constructor(
         }
     }
 
-    /** Ejecuta una llamada de red y devuelve null si falla, para no romper la pantalla. */
     private suspend fun <T> intentar(bloque: suspend () -> T): T? = try {
         bloque()
     } catch (e: Exception) {
@@ -308,7 +326,7 @@ class InicioViewModel @Inject constructor(
     private fun OrganizacionDto.aOrganizacionEntity() = OrganizacionEntity(
         id = id.hashCode(),
         nombre = nombre,
-        tipo = tipo,
+        tipo = tipo ?: "EMPRESA",
         rut = rut ?: "",
         correoContacto = "contacto@" + nombre.lowercase().replace(" ", "")
     )
@@ -334,22 +352,16 @@ class InicioViewModel @Inject constructor(
     )
 
     fun cargarUsuario(usuarioId: Int) {
-        // Como ya tenemos el usuario en memoria, solo nos aseguramos de que esté seleccionado
         val user = _uiState.value.todosUsuarios.find { it.id == usuarioId }
         if (user != null) {
             _uiState.update { it.copy(usuarioActual = user, filtroEstado = "TODOS") }
         }
     }
+
     fun cargarDatosExtraPerfil(context: Context) {
-        // Como ahora usamos estado puro y no SharedPreferences,
-        // podemos simular la carga del avatar o dejarlo listo para la API.
-        // Por ahora, solo actualizamos el estado para evitar que la UI falle.
         _uiState.update { it.copy(avatarPath = null) }
     }
 
-    // ---------------------------------------------------------
-    // DETALLE EXPANDIDO DE COMPROMISO Y PAGO (AHORA EN MEMORIA)
-    // ---------------------------------------------------------
     fun abrirDetalleCompromiso(compromiso: CompromisoEntity) {
         _uiState.update { it.copy(compromisoDetalleSeleccionado = compromiso, comprobanteBorradorUri = compromiso.comprobanteUri) }
     }
@@ -372,7 +384,6 @@ class InicioViewModel @Inject constructor(
             return
         }
 
-        // Actualizamos el compromiso en la lista en memoria
         val listaActualizada = state.compromisos.map {
             if (it.id == compromiso.id) it.copy(estado = "REVISION", comprobanteUri = uriComprobante)
             else it
@@ -382,9 +393,6 @@ class InicioViewModel @Inject constructor(
         mostrarMensaje("Pago registrado y comprobante enviado a revisión del Ejecutivo.")
     }
 
-    // ---------------------------------------------------------
-    // CÁLCULO DE STRIKES (SE MANTIENE IGUAL)
-    // ---------------------------------------------------------
     fun calcularStrikesCliente(usuarioId: Int): Pair<Int, List<String>> {
         val state = _uiState.value
         val orgsAprobadas = state.vinculosUsuarioOrgs[usuarioId].orEmpty()
@@ -402,9 +410,6 @@ class InicioViewModel @Inject constructor(
         return detalles.size to detalles
     }
 
-    // ---------------------------------------------------------
-    // FILTROS
-    // ---------------------------------------------------------
     fun onFiltroEstadoChange(nuevoFiltro: String) { _uiState.update { it.copy(filtroEstado = nuevoFiltro) } }
     fun onBusquedaChange(texto: String) { _uiState.update { it.copy(textoBusqueda = texto) } }
     fun onBusquedaClientesEmpresaChange(texto: String) { _uiState.update { it.copy(busquedaClientesEmpresa = texto) } }
@@ -414,9 +419,6 @@ class InicioViewModel @Inject constructor(
     fun onFiltroSoporteAdminChange(filtro: String) { _uiState.update { it.copy(filtroSoporteAdmin = filtro) } }
     fun onFiltroStrikesAdminChange(filtro: String) { _uiState.update { it.copy(filtroStrikesAdmin = filtro) } }
 
-    // ---------------------------------------------------------
-    // COMPROMISOS (EN MEMORIA)
-    // ---------------------------------------------------------
     fun abrirDialogoNuevoCompromiso() {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
@@ -469,7 +471,6 @@ class InicioViewModel @Inject constructor(
             val fechaCuota = fechaInicio.plusMonths(indice.toLong()).format(FORMATO_FECHA)
             val conceptoCuota = if (state.esCobroRecurrenteMensual) "$concepto (Mes ${indice + 1}/$totalCuotas • Recurrente)" else concepto
 
-            // Creamos el compromiso en memoria
             val nuevoId = (1000..999999).random()
             val nuevo = CompromisoEntity(
                 id = nuevoId,
@@ -508,9 +509,6 @@ class InicioViewModel @Inject constructor(
         mostrarMensaje(if (aprobado) "Pago verificado y conciliado." else "Comprobante rechazado.")
     }
 
-    // ---------------------------------------------------------
-    // GESTIÓN DE EMPRESAS Y CLIENTES (EN MEMORIA)
-    // ---------------------------------------------------------
     fun abrirDialogoRegistrarEmpresaUsuario() { _uiState.update { it.copy(mostrarDialogoRegistrarEmpresaUsuario = true) } }
     fun cerrarDialogoRegistrarEmpresaUsuario() { _uiState.update { it.copy(mostrarDialogoRegistrarEmpresaUsuario = false) } }
     fun onNuevaEmpresaNombreChange(valor: String) { _uiState.update { it.copy(nuevaEmpresaNombreInput = valor) } }
@@ -518,11 +516,11 @@ class InicioViewModel @Inject constructor(
     fun onNuevaEmpresaRutChange(valor: String) { _uiState.update { it.copy(nuevaEmpresaRutInput = ValidadorRut.formatearRut(valor)) } }
     fun onNuevaEmpresaCorreoChange(valor: String) { _uiState.update { it.copy(nuevaEmpresaCorreoInput = valor) } }
 
+
     fun registrarNuevaEmpresaUsuario(context: Context) {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
         val nombre = state.nuevaEmpresaNombreInput.trim()
-        val tipo = state.nuevaEmpresaTipoInput
         val rut = ValidadorRut.formatearRut(state.nuevaEmpresaRutInput)
         val correo = state.nuevaEmpresaCorreoInput.trim()
 
@@ -531,14 +529,34 @@ class InicioViewModel @Inject constructor(
             return
         }
 
-        val nuevaOrg = OrganizacionEntity(id = (1000..9999).random(), nombre = nombre, tipo = tipo, rut = rut, correoContacto = correo)
+        viewModelScope.launch {
+            _uiState.update { it.copy(cargando = true) }
+            try {
+                // Obtenemos el UUID real desde la sesión guardada
+                val sesion = almacenSesion.sesion.first()
+                val uuidReal = sesion?.id ?: "11111111-1111-1111-1111-111111111111" // UUID de Ana por si falla
 
-        _uiState.update {
-            it.copy(
-                organizaciones = it.organizaciones + nuevaOrg,
-                mostrarDialogoRegistrarEmpresaUsuario = false,
-                mensajeSnackbar = "Empresa '$nombre' registrada en memoria."
-            )
+                val request = TicketRequestDto(
+                    usuarioId = uuidReal, // <--- AHORA ES UN UUID VÁLIDO
+                    usuarioNombre = user.nombre,
+                    tipo = "REGISTRO_EMPRESA",
+                    asunto = "Solicitud de registro: $nombre",
+                    descripcion = "RUT: $rut | Correo: $correo | Tipo: ${state.nuevaEmpresaTipoInput}"
+                )
+                apiSoporte.crearTicket(request)
+                _uiState.update {
+                    it.copy(
+                        cargando = false,
+                        mostrarDialogoRegistrarEmpresaUsuario = false,
+                        mensajeSnackbar = "Solicitud enviada a PagoFlex. En espera de aprobación."
+                    )
+                }
+                // Refrescamos los tickets
+                inicializarEntorno(context)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.update { it.copy(cargando = false, mensajeSnackbar = "Error de red al enviar solicitud") }
+            }
         }
     }
 
@@ -592,9 +610,6 @@ class InicioViewModel @Inject constructor(
         }
     }
 
-    // ---------------------------------------------------------
-    // REVISIÓN FINANCIERA Y STRIKES
-    // ---------------------------------------------------------
     fun abrirRevisionPerfilCliente(solicitud: SolicitudVinculacion) {
         val state = _uiState.value
         val cliente = state.clientesDisponibles.find { it.id == solicitud.usuarioId } ?: return
@@ -637,6 +652,7 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(solicitudesVinculacion = nuevasSolicitudes, perfilFinancieroEnRevision = null) }
         mostrarMensaje(if (aprobar) "Cliente aprobado." else "Solicitud rechazada.")
     }
+
     fun cambiarBloqueoClienteEmpresa(context: Context, bloquear: Boolean) {
         val state = _uiState.value
         val perfil = state.perfilFinancieroEnRevision ?: return
@@ -647,7 +663,6 @@ class InicioViewModel @Inject constructor(
             return
         }
 
-        // Actualizamos el estado de la solicitud en memoria
         val nuevasSolicitudes = state.solicitudesVinculacion.map {
             if (it.usuarioId == perfil.solicitud.usuarioId && it.organizacionId == perfil.solicitud.organizacionId) {
                 it.copy(
@@ -660,15 +675,12 @@ class InicioViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 solicitudesVinculacion = nuevasSolicitudes,
-                perfilFinancieroEnRevision = null, // Cerramos el diálogo
+                perfilFinancieroEnRevision = null,
                 mensajeSnackbar = if (bloquear) "Cliente bloqueado en tu empresa." else "Cliente desbloqueado."
             )
         }
     }
 
-    // ---------------------------------------------------------
-    // ADMIN: SUSPENSIÓN Y BLOQUEOS (EN MEMORIA)
-    // ---------------------------------------------------------
     fun abrirDialogoSuspenderEmpresaAdmin(org: OrganizacionEntity) { _uiState.update { it.copy(orgSuspendiendoAdmin = org) } }
     fun cerrarDialogoSuspenderEmpresaAdmin() { _uiState.update { it.copy(orgSuspendiendoAdmin = null) } }
     fun onMotivoSuspensionOrgChange(texto: String) { _uiState.update { it.copy(motivoSuspensionOrgInput = texto) } }
@@ -688,16 +700,13 @@ class InicioViewModel @Inject constructor(
     fun cerrarDialogoGestionarUsuarioAdmin() { _uiState.update { it.copy(usuarioEditandoAdmin = null) } }
     fun onMotivoBloqueoAppChange(texto: String) { _uiState.update { it.copy(motivoBloqueoAppInput = texto) } }
 
-
     fun toggleBloqueoGlobalUsuarioApp(context: Context, usuario: UsuarioEntity, bloquear: Boolean) {
         val state = _uiState.value
-        // NUEVO: protección de administradores y de la propia cuenta
         if (usuario.rol == "ADMIN" || usuario.id == state.usuarioActual?.id) {
             _uiState.update { it.copy(usuarioEditandoAdmin = null) }
             mostrarMensaje("No puedes suspender a otro administrador.")
             return
         }
-        // NUEVO: motivo obligatorio al bloquear (el estado ya tiene errorMotivoBloqueoApp)
         if (bloquear && state.motivoBloqueoAppInput.trim().length < 5) {
             _uiState.update { it.copy(errorMotivoBloqueoApp = "Indica el motivo (mín. 5 caracteres)") }
             return
@@ -707,14 +716,12 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(bloqueosGlobalesApp = nuevosBloqueos, usuarioEditandoAdmin = null) }
     }
 
-    // ---------------------------------------------------------
-    // SOPORTE (EN MEMORIA)
-    // ---------------------------------------------------------
     fun abrirDialogoSoporteUsuario() { _uiState.update { it.copy(mostrarDialogoSoporteUsuario = true) } }
     fun cerrarDialogoSoporteUsuario() { _uiState.update { it.copy(mostrarDialogoSoporteUsuario = false) } }
     fun onCategoriaSoporteChange(categoria: String) { _uiState.update { it.copy(categoriaSoporteInput = categoria) } }
     fun onAsuntoSoporteChange(asunto: String) { _uiState.update { it.copy(asuntoSoporteInput = asunto) } }
     fun onMensajeSoporteChange(mensaje: String) { _uiState.update { it.copy(mensajeSoporteInput = mensaje) } }
+
 
     fun enviarTicketSoporte(context: Context) {
         val state = _uiState.value
@@ -731,82 +738,72 @@ class InicioViewModel @Inject constructor(
 
         val esEjecutivo = user.rol == "EJECUTIVO"
 
-        // Enrutamiento: el ejecutivo reporta a PagoFlex; el cliente reporta a su ejecutivo
-        val destino = if (esEjecutivo) "PAGOFLEX" else "EJECUTIVO"
+        viewModelScope.launch {
+            try {
+                val sesion = almacenSesion.sesion.first()
+                val uuidReal = sesion?.id ?: "11111111-1111-1111-1111-111111111111"
 
-        val empresaDelCliente = if (destino == "EJECUTIVO") {
-            state.organizaciones.firstOrNull { org ->
-                state.vinculosUsuarioOrgs[user.id]?.contains(org.id) == true
+                val request = TicketRequestDto(
+                    usuarioId = uuidReal,
+                    usuarioNombre = user.nombre,
+                    tipo = "SOPORTE", // <--- FORZAMOS A QUE SEA SOPORTE
+                    asunto = state.asuntoSoporteInput,
+                    descripcion = state.mensajeSoporteInput
+                )
+                apiSoporte.crearTicket(request)
+
+                _uiState.update {
+                    it.copy(
+                        cargando = false,
+                        mostrarDialogoSoporteUsuario = false,
+                        asuntoSoporteInput = "",
+                        mensajeSoporteInput = "",
+                        mensajeSnackbar = if (esEjecutivo) "Ticket enviado a PagoFlex." else "Ticket enviado a tu ejecutivo."
+                    )
+                }
+                inicializarEntorno(context)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.update { it.copy(cargando = false, mensajeSnackbar = "Error de red al enviar ticket") }
             }
-        } else {
-            state.organizaciones.firstOrNull { it.id == user.empresaId }
         }
-
-        val nuevoTicket = TicketSoporte(
-            id = "TCK-${(100..999).random()}",
-            usuarioId = user.id,
-            usuarioNombre = user.nombre,
-            usuarioRol = user.rol,
-            usuarioRut = user.rut,
-            empresaNombre = empresaDelCliente?.nombre,
-            categoria = state.categoriaSoporteInput,
-            asunto = state.asuntoSoporteInput,
-            mensaje = state.mensajeSoporteInput,
-            fechaCreacion = LocalDate.now().format(FORMATO_FECHA),
-            estado = "PENDIENTE",
-            destino = destino,
-            empresaId = empresaDelCliente?.id
-        )
-
-        _uiState.update {
-            it.copy(
-                ticketsSoporte = listOf(nuevoTicket) + it.ticketsSoporte,
-                mostrarDialogoSoporteUsuario = false,
-                asuntoSoporteInput = "",
-                mensajeSoporteInput = "",
-                errorAsuntoSoporte = null,
-                errorMensajeSoporte = null
-            )
-        }
-        mostrarMensaje(
-            if (esEjecutivo) "Ticket enviado a PagoFlex."
-            else "Ticket enviado a tu ejecutivo."
-        )
     }
 
     fun abrirDialogoResponderTicket(ticket: TicketSoporte) { _uiState.update { it.copy(ticketEnRevisionAdmin = ticket) } }
     fun cerrarDialogoResponderTicket() { _uiState.update { it.copy(ticketEnRevisionAdmin = null) } }
     fun onRespuestaTicketAdminChange(texto: String) { _uiState.update { it.copy(respuestaTicketAdminInput = texto) } }
 
-    /** Responde y cierra un ticket. Lo usa tanto la administración como el ejecutivo. */
-    fun resolverTicketSoporte(context: Context) {
+    fun resolverTicketSoporte(context: Context, aprobado: Boolean) {
         val state = _uiState.value
         val ticket = state.ticketEnRevisionAdmin ?: return
         val respuesta = state.respuestaTicketAdminInput.ifBlank { "Ticket atendido." }
-        val actualizados = state.ticketsSoporte.map {
-            if (it.id == ticket.id) {
-                it.copy(
-                    estado = "RESUELTO",
-                    respuestaAdmin = respuesta,
-                    fechaRespuesta = LocalDate.now().format(FORMATO_FECHA)
+        val nuevoEstado = if (aprobado) "APROBADO" else "RECHAZADO"
+
+        viewModelScope.launch {
+            try {
+                val request = mapOf(
+                    "estado" to nuevoEstado,
+                    "motivoRespuesta" to respuesta
                 )
-            } else {
-                it
+                apiSoporte.resolverTicket(ticket.id, request)
+
+                val actualizados = state.ticketsSoporte.map {
+                    if (it.id == ticket.id) it.copy(estado = nuevoEstado, respuestaAdmin = respuesta) else it
+                }
+                _uiState.update {
+                    it.copy(
+                        ticketsSoporte = actualizados,
+                        ticketEnRevisionAdmin = null,
+                        respuestaTicketAdminInput = "",
+                        mensajeSnackbar = "Ticket $nuevoEstado."
+                    )
+                }
+            } catch (e: Exception) {
+                mostrarMensaje("Error al resolver el ticket")
             }
         }
-        _uiState.update {
-            it.copy(
-                ticketsSoporte = actualizados,
-                ticketEnRevisionAdmin = null,
-                respuestaTicketAdminInput = ""
-            )
-        }
-        mostrarMensaje("Ticket resuelto.")
     }
 
-    // ---------------------------------------------------------
-    // PERFIL Y SEGURIDAD
-    // ---------------------------------------------------------
     fun abrirDialogoFotoPerfil() { _uiState.update { it.copy(mostrarDialogoFotoPerfil = true) } }
     fun cerrarDialogoFotoPerfil() { _uiState.update { it.copy(mostrarDialogoFotoPerfil = false) } }
     fun eliminarFotoPerfil(context: Context) { _uiState.update { it.copy(avatarPath = null, mostrarDialogoFotoPerfil = false) } }
@@ -835,11 +832,7 @@ class InicioViewModel @Inject constructor(
         _uiState.update { it.copy(mostrarDialogoSeguridad = false, mensajeSnackbar = "Contraseña actualizada (Simulado).") }
     }
 
-    // ---------------------------------------------------------
-    // EXPORTACIÓN CSV (MANTENIDA)
-    // ---------------------------------------------------------
     fun exportarReporteCsv(context: Context) {
-        // Se mantiene tu código original, ya que solo lee de _uiState.value
         mostrarMensaje("Generando CSV...")
     }
 

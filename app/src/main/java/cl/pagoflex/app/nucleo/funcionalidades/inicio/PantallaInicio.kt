@@ -677,7 +677,7 @@ fun PantallaInicio(
                 respuestaInput = uiState.respuestaTicketAdminInput,
                 errorRespuesta = uiState.errorRespuestaTicketAdmin,
                 onRespuestaChange = { viewModel.onRespuestaTicketAdminChange(it) },
-                onConfirmar = { viewModel.resolverTicketSoporte(context) },
+                onConfirmar = { viewModel.resolverTicketSoporte(context, aprobado = true) }, // <--- CORREGIDO
                 onDismiss = { viewModel.cerrarDialogoResponderTicket() }
             )
         }
@@ -1479,12 +1479,14 @@ private fun VistaAdminSoporte(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Mostramos el tipo de ticket (Soporte o Registro de Empresa)
                             Text(
-                                text = "${ticket.id} • ${ticket.categoria}",
-                                style = MaterialTheme.typography.labelMedium,
+                                text = ticket.categoria,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
                             )
+
                             Surface(
                                 color = if (esPendiente) Color(0xFFD97706).copy(alpha = 0.16f) else Color(0xFF16A34A).copy(alpha = 0.16f),
                                 shape = RoundedCornerShape(50)
@@ -1506,9 +1508,7 @@ private fun VistaAdminSoporte(
                         )
 
                         Text(
-                            text = "De: ${ticket.usuarioNombre} (${ticket.usuarioRol})" +
-                                    (ticket.empresaNombre?.let { " • $it" } ?: "") +
-                                    " • ${ticket.fechaCreacion}",
+                            text = "De: ${ticket.usuarioNombre} • ${ticket.fechaCreacion}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1533,10 +1533,7 @@ private fun VistaAdminSoporte(
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
-                                        text = if (ticket.destino == "EJECUTIVO")
-                                            "Respuesta del ejecutivo (${ticket.fechaRespuesta ?: ""}):"
-                                        else
-                                            "Respuesta Administración (${ticket.fechaRespuesta ?: ""}):",
+                                        text = "Respuesta (${ticket.fechaRespuesta ?: ""}):",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -1554,7 +1551,7 @@ private fun VistaAdminSoporte(
                                 onClick = { onResponderTicket(ticket) },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Responder y Resolver")
+                                Text("Responder Ticket")
                             }
                         }
                     }
@@ -2390,13 +2387,14 @@ private fun VistaEmpresasUsuario(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // En VistaEmpresasUsuario
                 Button(
                     onClick = onAbrirRegistrarEmpresa,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Registrar Nueva Empresa")
+                    Text("Solicitar Registro de Empresa") // <-- Antes decía "Registrar Nueva Empresa"
                 }
             }
         }
@@ -3296,7 +3294,7 @@ private fun DialogoRegistrarEmpresaUsuario(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Registrar Nueva Empresa",
+                text = "Solicitar Registro de Empresa", // <-- Texto cambiado
                 fontWeight = FontWeight.Bold
             )
         },
@@ -3306,7 +3304,7 @@ private fun DialogoRegistrarEmpresaUsuario(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Crea una nueva entidad en PagoFlex y vincúlala automáticamente a tu perfil.",
+                    text = "Envía una solicitud al administrador de PagoFlex para crear y vincular esta entidad a tu perfil.", // <-- Texto cambiado
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3364,8 +3362,19 @@ private fun DialogoRegistrarEmpresaUsuario(
             }
         },
         confirmButton = {
-            Button(onClick = onGuardar) {
-                Text("Registrar Empresa")
+            Button(
+                onClick = onGuardar,
+                enabled = !uiState.cargando // Deshabilitar mientras carga
+            ) {
+                if (uiState.cargando) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Enviar Solicitud a PagoFlex") // <-- Texto cambiado
+                }
             }
         },
         dismissButton = {
