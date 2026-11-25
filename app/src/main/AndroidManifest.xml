@@ -17,7 +17,7 @@
         android:label="PagoFlex"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PagoFlex"
+        android:theme="@style/Theme.PagoFlex.Splash"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
 
@@ -35,7 +35,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="PagoFlex"
-            android:theme="@style/Theme.PagoFlex">
+            android:theme="@style/Theme.PagoFlex.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

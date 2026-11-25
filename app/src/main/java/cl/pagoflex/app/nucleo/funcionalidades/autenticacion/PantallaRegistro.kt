@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cl.pagoflex.app.nucleo.diseno.tema.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,9 +34,19 @@ fun PantallaRegistro(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Crear Cuenta") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                title = {
+                    Text(
+                        text = "Crear Cuenta",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.limpiarMensajes()
@@ -137,6 +148,8 @@ fun PantallaRegistro(
                     Text("Registrarse")
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

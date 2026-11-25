@@ -77,7 +77,7 @@ class LoginViewModel @Inject constructor(
         if (estado.errorCorreo != null || estado.errorContrasena != null) return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(cargando = true, mensajeGlobalError = null) }
+            _uiState.update { it.copy(cargando = true, mensajeGlobalError = null, mensajeGlobalExito = null) }
             try {
                 val respuesta = apiAutenticacion.iniciarSesion(LoginRequestDto(estado.correo.trim(), estado.contrasena))
                 almacenSesion.guardarSesion(
