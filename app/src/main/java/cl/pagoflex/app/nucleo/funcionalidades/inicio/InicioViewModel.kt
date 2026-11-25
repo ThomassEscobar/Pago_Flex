@@ -1,12 +1,7 @@
 package cl.pagoflex.app.nucleo.funcionalidades.inicio
 
-import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
-import androidx.core.content.FileProvider
 import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,16 +20,12 @@ import cl.pagoflex.app.nucleo.red.ApiSoporte
 import cl.pagoflex.app.nucleo.util.NotificadorPagoFlex
 import cl.pagoflex.app.nucleo.util.ValidadorRut
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -152,6 +143,7 @@ data class InicioUiState(
     val respuestaTicketAdminInput: String = "",
     val errorRespuestaTicketAdmin: String? = null,
 
+    val modoOscuro: Boolean = false,
     val avatarPath: String? = null,
     val mostrarDialogoFotoPerfil: Boolean = false,
     val mostrarDialogoDatosPersonales: Boolean = false,
@@ -218,6 +210,7 @@ class InicioViewModel @Inject constructor(
             _uiState.update { it.copy(cargando = true) }
             try {
                 val sesion = almacenSesion.sesion.first()
+                val oscuroGuardado = almacenSesion.modoOscuro.first() ?: false
 
                 val compromisosRemotos = intentar { apiCompromisos.listarCompromisos() }.orEmpty()
                 val cuentas = intentar { apiAutenticacion.listarUsuarios() }.orEmpty()
@@ -226,10 +219,8 @@ class InicioViewModel @Inject constructor(
                 val compromisosLocales = compromisosRemotos.map { it.aCompromisoLocal() }
                 val usuarios = cuentas.map { it.aUsuarioEntity() }
 
-                // Mapea los tickets a la UI
                 val ticketsLocales = ticketsRemotos.map { dto ->
-                    // Traducimos el tipo técnico a un texto bonito
-                    val tipoFormateado = when(dto.tipo) {
+                    val tipoFormateado = when (dto.tipo) {
                         "REGISTRO_EMPRESA" -> "Solicitud de Empresa"
                         "SOPORTE" -> "Ticket de Soporte"
                         "VINCULACION_EMPRESA" -> "Solicitud de Vinculación"
@@ -243,12 +234,11 @@ class InicioViewModel @Inject constructor(
                         usuarioRol = "USUARIO",
                         usuarioRut = "",
                         empresaNombre = null,
-                        categoria = tipoFormateado, // <-- Aquí se guarda el nombre bonito
+                        categoria = tipoFormateado,
                         asunto = dto.asunto,
                         mensaje = dto.descripcion,
                         fechaCreacion = dto.creadoEn.take(10),
                         estado = dto.estado,
-                        // Si es registro de empresa, va a PAGOFLEX. Si es soporte, va al EJECUTIVO
                         destino = if (dto.tipo == "REGISTRO_EMPRESA") "PAGOFLEX" else "EJECUTIVO",
                         respuestaAdmin = dto.motivoRespuesta
                     )
@@ -284,6 +274,7 @@ class InicioViewModel @Inject constructor(
                 _uiState.update { state ->
                     state.copy(
                         cargando = false,
+                        modoOscuro = oscuroGuardado,
                         usuarioActual = usuarioActual,
                         todosUsuarios = usuarios,
                         clientesDisponibles = usuarios.filter { it.rol == "USUARIO" },
@@ -301,6 +292,13 @@ class InicioViewModel @Inject constructor(
                     it.copy(cargando = false, mensajeSnackbar = "Error al conectar con el servidor: ${e.message}")
                 }
             }
+        }
+    }
+
+    fun toggleModoOscuro(activado: Boolean) {
+        _uiState.update { it.copy(modoOscuro = activado) }
+        viewModelScope.launch {
+            almacenSesion.setModoOscuro(activado)
         }
     }
 
@@ -516,7 +514,6 @@ class InicioViewModel @Inject constructor(
     fun onNuevaEmpresaRutChange(valor: String) { _uiState.update { it.copy(nuevaEmpresaRutInput = ValidadorRut.formatearRut(valor)) } }
     fun onNuevaEmpresaCorreoChange(valor: String) { _uiState.update { it.copy(nuevaEmpresaCorreoInput = valor) } }
 
-
     fun registrarNuevaEmpresaUsuario(context: Context) {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
@@ -532,12 +529,11 @@ class InicioViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true) }
             try {
-                // Obtenemos el UUID real desde la sesión guardada
                 val sesion = almacenSesion.sesion.first()
-                val uuidReal = sesion?.id ?: "11111111-1111-1111-1111-111111111111" // UUID de Ana por si falla
+                val uuidReal = sesion?.id ?: "11111111-1111-1111-1111-111111111111"
 
                 val request = TicketRequestDto(
-                    usuarioId = uuidReal, // <--- AHORA ES UN UUID VÁLIDO
+                    usuarioId = uuidReal,
                     usuarioNombre = user.nombre,
                     tipo = "REGISTRO_EMPRESA",
                     asunto = "Solicitud de registro: $nombre",
@@ -551,7 +547,6 @@ class InicioViewModel @Inject constructor(
                         mensajeSnackbar = "Solicitud enviada a PagoFlex. En espera de aprobación."
                     )
                 }
-                // Refrescamos los tickets
                 inicializarEntorno(context)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -634,7 +629,7 @@ class InicioViewModel @Inject constructor(
             else -> "BAJO"
         }
 
-        val perfil = PerfilFinancieroCliente(cliente, solicitud, strikes, detalleStrikes, cumplimiento, pagados, historial.filter{it.estado=="PAGADO"}.sumOf { it.monto }.toInt(), pendientes, revision, 0, rechazados, deuda, riesgo, solicitud.estado == EstadoVinculo.BLOQUEADA)
+        val perfil = PerfilFinancieroCliente(cliente, solicitud, strikes, detalleStrikes, cumplimiento, pagados, historial.filter { it.estado == "PAGADO" }.sumOf { it.monto }.toInt(), pendientes, revision, 0, rechazados, deuda, riesgo, solicitud.estado == EstadoVinculo.BLOQUEADA)
         _uiState.update { it.copy(perfilFinancieroEnRevision = perfil) }
     }
 
@@ -646,7 +641,7 @@ class InicioViewModel @Inject constructor(
         val perfil = state.perfilFinancieroEnRevision ?: return
         val nuevasSolicitudes = state.solicitudesVinculacion.map {
             if (it.usuarioId == perfil.solicitud.usuarioId && it.organizacionId == perfil.solicitud.organizacionId) {
-                it.copy(estado = if (aprobar) EstadoVinculo.APROBADA else EstadoVinculo.RECHAZADA, motivoRechazo = if(!aprobar) state.motivoRechazoSolicitudInput else null)
+                it.copy(estado = if (aprobar) EstadoVinculo.APROBADA else EstadoVinculo.RECHAZADA, motivoRechazo = if (!aprobar) state.motivoRechazoSolicitudInput else null)
             } else it
         }
         _uiState.update { it.copy(solicitudesVinculacion = nuevasSolicitudes, perfilFinancieroEnRevision = null) }
@@ -722,7 +717,6 @@ class InicioViewModel @Inject constructor(
     fun onAsuntoSoporteChange(asunto: String) { _uiState.update { it.copy(asuntoSoporteInput = asunto) } }
     fun onMensajeSoporteChange(mensaje: String) { _uiState.update { it.copy(mensajeSoporteInput = mensaje) } }
 
-
     fun enviarTicketSoporte(context: Context) {
         val state = _uiState.value
         val user = state.usuarioActual ?: return
@@ -746,7 +740,7 @@ class InicioViewModel @Inject constructor(
                 val request = TicketRequestDto(
                     usuarioId = uuidReal,
                     usuarioNombre = user.nombre,
-                    tipo = "SOPORTE", // <--- FORZAMOS A QUE SEA SOPORTE
+                    tipo = "SOPORTE",
                     asunto = state.asuntoSoporteInput,
                     descripcion = state.mensajeSoporteInput
                 )

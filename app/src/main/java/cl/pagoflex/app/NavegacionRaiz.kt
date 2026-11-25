@@ -14,7 +14,6 @@ fun NavegacionRaiz(estaLogueado: Boolean) {
 
     NavHost(
         navController = navController,
-        // Si está logueado va a Inicio, si no, a Login
         startDestination = if (estaLogueado) RutaInicio else RutaLogin
     ) {
         composable<RutaLogin> {
@@ -44,7 +43,6 @@ fun NavegacionRaiz(estaLogueado: Boolean) {
         composable<RutaInicio> {
             PantallaInicio(
                 onCerrarSesion = {
-                    // Al cerrar sesión, limpiamos el historial y volvemos al login
                     navController.navigate(RutaLogin) {
                         popUpTo(0) { inclusive = true }
                     }

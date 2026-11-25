@@ -328,7 +328,6 @@ private fun IconoOjitoContrasena(visible: Boolean, tint: Color) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PantallaInicio(
-    usuarioId: Int = 1,
     onCerrarSesion: () -> Unit = {},
     viewModel: InicioViewModel = hiltViewModel()
 ) {
@@ -370,10 +369,6 @@ fun PantallaInicio(
 
     LaunchedEffect(Unit) {
         viewModel.inicializarEntorno(context)
-    }
-
-    LaunchedEffect(usuarioId) {
-        viewModel.cargarUsuario(usuarioId)
     }
 
     LaunchedEffect(uiState.usuarioActual?.id) {
@@ -656,11 +651,11 @@ fun PantallaInicio(
                             )
                         }
                     )
-                    // El ejecutivo tiene bandeja de soporte: recibe los tickets de sus clientes
                     if (esEjecutivo) {
                         NavigationBarItem(
                             selected = tabSeleccionado == 2,
                             onClick = { tabSeleccionado = 2 },
+                            colors = itemColors,
                             icon = {
                                 BadgedBox(
                                     badge = {
@@ -679,6 +674,7 @@ fun PantallaInicio(
                     NavigationBarItem(
                         selected = tabSeleccionado == indicePerfil,
                         onClick = { tabSeleccionado = indicePerfil },
+                        colors = itemColors,
                         icon = { Icon(Icons.Default.Person, contentDescription = null) },
                         label = { Text("Perfil", fontWeight = FontWeight.SemiBold) }
                     )
@@ -698,8 +694,8 @@ fun PantallaInicio(
             } else if (tabSeleccionado == 1 && !esAdmin && !esEjecutivo) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.abrirDialogoVincularEmpresaUsuario() },
-                    containerColor = AzulPrimario,
-                    contentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text("Vincular Empresa", fontWeight = FontWeight.Bold) }
@@ -730,7 +726,6 @@ fun PantallaInicio(
                         uiState = uiState,
                         titulo = "Mesa de Ayuda PagoFlex",
                         subtitulo = "Reportes enviados por los ejecutivos de las empresas",
-                        // La administración solo atiende lo que va dirigido a PagoFlex
                         tickets = uiState.ticketsSoporte.filter { it.destino == "PAGOFLEX" },
                         onFiltroChange = { viewModel.onFiltroSoporteAdminChange(it) },
                         onResponderTicket = { viewModel.abrirDialogoResponderTicket(it) }
@@ -742,9 +737,7 @@ fun PantallaInicio(
                         onAbrirDatosPersonales = { viewModel.abrirDialogoDatosPersonales() },
                         onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
                         onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
-                        onAvisoColorFuturo = {
-                            viewModel.mostrarMensaje("Tema accesible WCAG 2.1 AA activo con soporte automático para modo claro y oscuro.")
-                        },
+                        onToggleModoOscuro = { viewModel.toggleModoOscuro(it) },
                         onExportarCsv = { viewModel.exportarReporteCsv(context) },
                         onCerrarSesion = onCerrarSesion
                     )
@@ -783,7 +776,6 @@ fun PantallaInicio(
                         )
                     }
                     2, 3 -> when {
-                        // Bandeja del ejecutivo: tickets que le envían sus clientes
                         tabSeleccionado == 2 && esEjecutivo -> VistaAdminSoporte(
                             uiState = uiState,
                             titulo = "Soporte de mis clientes",
@@ -803,9 +795,7 @@ fun PantallaInicio(
                             onAbrirDatosPersonales = { viewModel.abrirDialogoDatosPersonales() },
                             onAbrirSeguridad = { viewModel.abrirDialogoSeguridad() },
                             onAbrirSoporte = { viewModel.abrirDialogoSoporteUsuario() },
-                            onAvisoColorFuturo = {
-                                viewModel.mostrarMensaje("Personalización de colores del tema disponible en la etapa visual final.")
-                            },
+                            onToggleModoOscuro = { viewModel.toggleModoOscuro(it) },
                             onExportarCsv = { viewModel.exportarReporteCsv(context) },
                             onCerrarSesion = onCerrarSesion
                         )
@@ -968,7 +958,7 @@ fun PantallaInicio(
                 respuestaInput = uiState.respuestaTicketAdminInput,
                 errorRespuesta = uiState.errorRespuestaTicketAdmin,
                 onRespuestaChange = { viewModel.onRespuestaTicketAdminChange(it) },
-                onConfirmar = { viewModel.resolverTicketSoporte(context, aprobado = true) }, // <--- CORREGIDO
+                onConfirmar = { viewModel.resolverTicketSoporte(context, aprobado = true) },
                 onDismiss = { viewModel.cerrarDialogoResponderTicket() }
             )
         }
@@ -1695,7 +1685,7 @@ private fun VistaAdminSoporte(
     val ticketsFiltrados = remember(tickets, uiState.filtroSoporteAdmin) {
         when (uiState.filtroSoporteAdmin) {
             "PENDIENTES" -> tickets.filter { it.estado == "PENDIENTE" }
-            "RESUELTOS" -> tickets.filter { it.estado == "RESUELTO" }
+            "RESUELTOS" -> tickets.filter { it.estado == "RESUELTO" || it.estado == "APROBADO" }
             else -> tickets
         }
     }
@@ -1770,7 +1760,6 @@ private fun VistaAdminSoporte(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Mostramos el tipo de ticket (Soporte o Registro de Empresa)
                             Text(
                                 text = ticket.categoria,
                                 style = MaterialTheme.typography.labelLarge,
@@ -2261,7 +2250,6 @@ private fun TarjetaCompromisoItem(
         elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta)
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            // Indicador lateral de estado
             Box(
                 modifier = Modifier
                     .width(5.dp)
@@ -2275,7 +2263,6 @@ private fun TarjetaCompromisoItem(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Bloque agrupado para lectura fluida en TalkBack
                 Column(
                     modifier = Modifier.semantics(mergeDescendants = true) {},
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -2795,7 +2782,6 @@ private fun VistaEmpresasUsuario(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // En VistaEmpresasUsuario
                 Button(
                     onClick = onAbrirRegistrarEmpresa,
                     shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
@@ -2805,7 +2791,7 @@ private fun VistaEmpresasUsuario(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Solicitar Registro de Empresa") // <-- Antes decía "Registrar Nueva Empresa"
+                    Text("Solicitar Registro de Empresa")
                 }
             }
         }
@@ -3350,7 +3336,7 @@ private fun VistaPerfil(
     onAbrirDatosPersonales: () -> Unit,
     onAbrirSeguridad: () -> Unit,
     onAbrirSoporte: () -> Unit,
-    onAvisoColorFuturo: () -> Unit,
+    onToggleModoOscuro: (Boolean) -> Unit,
     onExportarCsv: () -> Unit,
     onCerrarSesion: () -> Unit
 ) {
@@ -3414,7 +3400,7 @@ private fun VistaPerfil(
         if (user == null) emptyList() else uiState.ticketsSoporte.filter { it.usuarioId == user.id }
     }
     val subtituloSoporte = when {
-        misTickets.any { it.estado == "RESUELTO" } -> "${misTickets.size} consulta(s) • Ver respuestas"
+        misTickets.any { it.estado == "RESUELTO" || it.estado == "APROBADO" } -> "${misTickets.size} consulta(s) • Ver respuestas"
         misTickets.isNotEmpty() -> "${misTickets.size} consulta(s) en revisión"
         user?.rol == "EJECUTIVO" -> "Reportar un problema a PagoFlex"
         else -> "Contactar a tu ejecutivo"
@@ -3427,7 +3413,6 @@ private fun VistaPerfil(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Cabecera de perfil con identidad PagoFlex
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
@@ -3645,12 +3630,49 @@ private fun VistaPerfil(
                         onClick = onAbrirSeguridad
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                    FilaOpcionPerfil(
-                        icono = Icons.Default.Visibility,
-                        titulo = "Accesibilidad y Apariencia",
-                        subtitulo = "Contraste WCAG 2.1 AA y modo adaptable activos",
-                        onClick = onAvisoColorFuturo
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 64.dp)
+                            .semantics(mergeDescendants = true) {}
+                            .clickable { onToggleModoOscuro(!uiState.modoOscuro) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = CircleShape,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (uiState.modoOscuro) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Modo oscuro",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (uiState.modoOscuro) "Activado en toda la aplicación" else "Desactivado (tema claro)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Switch(
+                            checked = uiState.modoOscuro,
+                            onCheckedChange = onToggleModoOscuro
+                        )
+                    }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     FilaOpcionPerfil(
                         icono = Icons.Default.Share,
@@ -3762,7 +3784,7 @@ private fun DialogoRegistrarEmpresaUsuario(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Solicitar Registro de Empresa", // <-- Texto cambiado
+                text = "Solicitar Registro de Empresa",
                 fontWeight = FontWeight.Bold
             )
         },
@@ -3772,7 +3794,7 @@ private fun DialogoRegistrarEmpresaUsuario(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Envía una solicitud al administrador de PagoFlex para crear y vincular esta entidad a tu perfil.", // <-- Texto cambiado
+                    text = "Envía una solicitud al administrador de PagoFlex para crear y vincular esta entidad a tu perfil.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3832,7 +3854,7 @@ private fun DialogoRegistrarEmpresaUsuario(
         confirmButton = {
             Button(
                 onClick = onGuardar,
-                enabled = !uiState.cargando // Deshabilitar mientras carga
+                enabled = !uiState.cargando
             ) {
                 if (uiState.cargando) {
                     CircularProgressIndicator(
@@ -3841,7 +3863,7 @@ private fun DialogoRegistrarEmpresaUsuario(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("Enviar Solicitud a PagoFlex") // <-- Texto cambiado
+                    Text("Enviar Solicitud a PagoFlex")
                 }
             }
         },
@@ -4148,7 +4170,7 @@ private fun DialogoSoporteUsuario(
                                         text = t.estado,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (t.estado == "RESUELTO") VerdeExito else AmarilloAdvertencia
+                                        color = if (t.estado == "RESUELTO" || t.estado == "APROBADO") VerdeExito else AmarilloAdvertencia
                                     )
                                 }
                                 Text(text = t.mensaje, style = MaterialTheme.typography.bodySmall)

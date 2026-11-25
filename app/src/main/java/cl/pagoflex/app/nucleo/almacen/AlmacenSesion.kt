@@ -1,6 +1,7 @@
 package cl.pagoflex.app.nucleo.almacen
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -10,7 +11,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-val Context.dataStore by preferencesDataStore(name = "pagoflex_session")
+private val Context.dataStore by preferencesDataStore(name = "pagoflex_session")
 
 /**
  * Identidad guardada tras el inicio de sesión.
@@ -36,9 +37,19 @@ class AlmacenSesion @Inject constructor(
     private val ID_KEY = stringPreferencesKey("id_usuario")
     private val RUT_KEY = stringPreferencesKey("rut_usuario")
     private val EMPRESA_KEY = stringPreferencesKey("empresa_usuario")
+    private val MODO_OSCURO_KEY = booleanPreferencesKey("modo_oscuro")
 
     val tokenSesion: Flow<String?> = context.dataStore.data
         .map { preferences -> preferences[TOKEN_KEY] }
+
+    val modoOscuro: Flow<Boolean?> = context.dataStore.data
+        .map { preferences -> preferences[MODO_OSCURO_KEY] }
+
+    suspend fun setModoOscuro(activado: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[MODO_OSCURO_KEY] = activado
+        }
+    }
 
     /** Sesión completa (null si no hay usuario identificado). */
     val sesion: Flow<SesionUsuario?> = context.dataStore.data
@@ -77,7 +88,11 @@ class AlmacenSesion @Inject constructor(
 
     suspend fun cerrarSesion() {
         context.dataStore.edit { preferences ->
+            val oscuroActual = preferences[MODO_OSCURO_KEY]
             preferences.clear()
+            if (oscuroActual != null) {
+                preferences[MODO_OSCURO_KEY] = oscuroActual
+            }
         }
     }
 }

@@ -206,43 +206,12 @@ fun PantallaRecuperarClave(
                     Text("Volver a Iniciar Sesión", fontWeight = FontWeight.Bold)
                 }
             } else {
-                Text(
-                    text = "Por seguridad, te enviaremos un correo electrónico con un enlace único para restablecer tu contraseña directamente desde tu bandeja de entrada.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-
-                OutlinedTextField(
-                    value = uiState.correo,
-                    onValueChange = { viewModel.onCorreoChange(it) },
-                    label = { Text("Correo electrónico registrado") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                    trailingIcon = {
-                        if (uiState.errorCorreo != null) {
-                            Icon(Icons.Default.Warning, contentDescription = "Error", tint = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    isError = uiState.errorCorreo != null,
-                    supportingText = {
-                        uiState.errorCorreo?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    enabled = !uiState.cargando,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                uiState.mensajeGlobalError?.let {
-                    Text(text = it, color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = {
-                        // Le pasamos el correo que el usuario escribió en el input
-                        viewModel.enviarCorreoRecuperacion(uiState.correo)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    enabled = !uiState.cargando
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DimensPagoflex.RadioTarjeta),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = DimensPagoflex.ElevacionTarjeta),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(
                         modifier = Modifier.padding(18.dp),
@@ -321,7 +290,7 @@ fun PantallaRecuperarClave(
                         }
 
                         Button(
-                            onClick = { viewModel.enviarCorreoRecuperacion() },
+                            onClick = { viewModel.enviarCorreoRecuperacion(uiState.correo) },
                             shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
                             modifier = Modifier
                                 .fillMaxWidth()

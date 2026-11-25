@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,18 +22,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import cl.pagoflex.app.nucleo.almacen.AlmacenSesion
 import cl.pagoflex.app.nucleo.diseno.tema.TemaPagoflex
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-// ViewModel para verificar si hay sesión guardada
 @HiltViewModel
 class SesionViewModel @Inject constructor(
     private val almacenSesion: AlmacenSesion
@@ -41,6 +46,13 @@ class SesionViewModel @Inject constructor(
         private set
     var estaLogueado by mutableStateOf(false)
         private set
+
+    val modoOscuro: StateFlow<Boolean?> = almacenSesion.modoOscuro
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null
+        )
 
     init {
         viewModelScope.launch {
@@ -58,10 +70,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            TemaPagoflex {
-                val context = LocalContext.current
-                val sesionViewModel: SesionViewModel = hiltViewModel()
+            val context = LocalContext.current
+            val sesionViewModel: SesionViewModel = hiltViewModel()
+            val modoOscuroGuardado by sesionViewModel.modoOscuro.collectAsStateWithLifecycle()
+            val usarModoOscuro = modoOscuroGuardado ?: isSystemInDarkTheme()
 
+            TemaPagoflex(modoOscuro = usarModoOscuro) {
                 val permisosObligatorios = remember {
                     buildList {
                         add(Manifest.permission.CAMERA)
@@ -103,17 +117,14 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier.fillMaxSize().systemBarsPadding()
                 ) {
-                    // Si está cargando el DataStore, mostramos un spinner
                     if (sesionViewModel.cargando) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     } else {
-                        // Navegación con Auto-Login
                         NavegacionRaiz(estaLogueado = sesionViewModel.estaLogueado)
                     }
 
-                    // Diálogo de permisos
                     if (mostrarDialogoPermisos) {
                         AlertDialog(
                             onDismissRequest = { },
