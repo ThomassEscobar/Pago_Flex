@@ -12,5 +12,7 @@ data class CompromisoEntity(
     val monto: Double,
     val fechaVencimiento: String, // Formato DD/MM/AAAA
     val estado: String = "PENDIENTE", // PENDIENTE, REVISION, PAGADO, RECHAZADO
-    val comprobanteUri: String? = null
+    val comprobanteUri: String? = null,
+    // Usuario dueño del compromiso (hash del UUID). 0 = no informado.
+    val usuarioId: Int = 0
 )

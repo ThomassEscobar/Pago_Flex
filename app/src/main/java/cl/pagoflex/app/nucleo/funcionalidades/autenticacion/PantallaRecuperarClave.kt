@@ -290,7 +290,7 @@ fun PantallaRecuperarClave(
                         }
 
                         Button(
-                            onClick = { viewModel.enviarCorreoRecuperacion() },
+                            onClick = { viewModel.enviarCorreoRecuperacion(uiState.correo) },
                             shape = RoundedCornerShape(DimensPagoflex.RadioBoton),
                             modifier = Modifier
                                 .fillMaxWidth()
